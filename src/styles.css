@@ -5,7 +5,7 @@
   --line: #2b303c;
   --text: #e8eaf0;
   --muted: #8b93a7;
-  --accent: #6aa8ff;
+  --accent: #ff6fa5;
   --ok: #3ddc97;
   --near: #ffc94d;
   --err: #ff6b7a;
@@ -23,7 +23,7 @@
     --line: #dfe3ec;
     --text: #171a22;
     --muted: #6b7488;
-    --accent: #2f6fd0;
+    --accent: #d6336c;
     --ok: #12a06a;
     --near: #b8820b;
     --err: #d63b4d;
@@ -521,54 +521,67 @@ input[type='radio'] {
   font-weight: 600;
 }
 
-.study-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-}
-.study-card {
+/* 종이 단어장처럼 왼쪽엔 영단어가, 오른쪽엔 뜻이 쭉 이어지는 두 칸짜리 목록.
+   뜻은 유의어가 길게 나열되는 경우가 많아 절대 자르지 않고 줄바꿈으로 흘려보낸다. */
+.study-list {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  transition: border-color 0.15s;
+  overflow: hidden;
 }
-.study-card:hover {
-  border-color: var(--accent);
+.study-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 200px) 1fr;
+  gap: 18px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
 }
-.study-card-head {
+.study-row:last-child {
+  border-bottom: none;
+}
+.study-row:nth-child(odd) {
+  background: var(--surface-2);
+}
+.study-row-en {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: baseline;
   gap: 8px;
+  min-width: 0;
 }
 .study-en {
-  font-family: var(--mono);
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   font-weight: 700;
   color: var(--accent);
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
-.study-ko {
-  margin: 0;
+.study-row-ko {
   font-size: 1rem;
-  line-height: 1.5;
+  line-height: 1.6;
+  color: var(--text);
+  overflow-wrap: break-word;
+  align-self: center;
 }
 .study-ko-list {
   margin: 0;
-  padding-left: 1.3em;
+  padding-left: 1.2em;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 0.95rem;
-  line-height: 1.5;
 }
 .study-ko-list li::marker {
   color: var(--accent);
   font-weight: 700;
+}
+
+@media (max-width: 480px) {
+  .study-row {
+    grid-template-columns: minmax(72px, 120px) 1fr;
+    gap: 10px;
+    padding: 12px;
+  }
+  .study-en {
+    font-size: 1rem;
+  }
 }
 
 .word-table {

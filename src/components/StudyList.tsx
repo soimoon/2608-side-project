@@ -46,22 +46,24 @@ export default function StudyList({ words, decks, pronunciations, onBack }: Prop
       {list.length === 0 ? (
         <p className="muted">표시할 단어가 없습니다.</p>
       ) : (
-        <div className="study-grid">
+        <div className="study-list">
           {list.map((w) => (
-            <div key={w.id} className="study-card">
-              <div className="study-card-head">
+            <div key={w.id} className="study-row">
+              <div className="study-row-en">
                 <span className="study-en">{w.en}</span>
                 <PronounceButton pron={lookupCache(w.en, pronunciations)} size="sm" />
               </div>
-              {w.ko.length > 1 ? (
-                <ol className="study-ko-list">
-                  {w.ko.map((m, i) => (
-                    <li key={i}>{m}</li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="study-ko">{w.ko[0]}</p>
-              )}
+              <div className="study-row-ko">
+                {w.ko.length > 1 ? (
+                  <ol className="study-ko-list">
+                    {w.ko.map((m, i) => (
+                      <li key={i}>{m}</li>
+                    ))}
+                  </ol>
+                ) : (
+                  w.ko[0]
+                )}
+              </div>
             </div>
           ))}
         </div>
