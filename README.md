@@ -23,6 +23,7 @@
 | 복습 | 틀리면 정답 따라 치기 + 세션 뒤쪽 재출제 + 결과 화면에서 오답만 재도전 |
 | 기록 | 단어별 정답률·연속 정답, 일별 학습 기록(연속 학습일) |
 | 계정(선택) | Google 로그인 시 단어장이 기기 간 자동 동기화. 로그인 안 해도 전부 동작(게스트 모드) |
+| 발음(선택) | Merriam-Webster 성우 녹음(미국식) + 발음기호. 틀렸을 때 자동 재생 |
 
 ## 단어 등록 형식
 
@@ -131,6 +132,40 @@ Supabase는 그 위에 얹는 동기화 계층일 뿐이다. 오프라인(지하
 > 매주 한 번 가볍게 핑을 보내 막아 주지만, 일시정지되더라도 오프라인 우선 설계 덕분에 앱 자체는
 > 계속 동작한다(그냥 그 사이 다른 기기와의 동기화만 잠깐 멈춘다).
 
+## 발음
+
+**틀린 발음을 알려주느니 아무것도 안 알려주는 게 낫다**는 원칙으로 만들었다. 철자와 발음을
+정확하게 외우는 게 이 앱의 목적이라, 어정쩡한 소리를 들려주면 기능이 있는 것이 오히려 해롭다.
+그래서:
+
+- **Merriam-Webster 성우가 실제로 녹음한 미국식 음원**만 쓴다. TOEFL이 미국식이라 목적에 맞고,
+  Learner's Dictionary는 ESL 학습자용이라 **국제음성기호(IPA)** 를 함께 준다.
+- **TTS(기계 합성) 대체를 하지 않는다.** 음원이 없으면 "발음 없음"이라고 밝힌다. 흔한 무료
+  사전 API(Wiktionary 계열)도 쓰지 않는다 — 자원봉사자 녹음이라 영/미/호주 억양이 섞여 있다.
+- **표제어가 정확히 일치할 때만** 발음을 붙인다. MW가 비슷한 철자를 추천해 와도 무시한다.
+  엉뚱한 단어의 음원을 들려주는 게 가장 나쁜 실패라서, 애매하면 포기하는 쪽을 택했다.
+
+조회 결과는 `pronunciations` 테이블에 **전 사용자 공유로 캐시**되므로 단어 하나당 평생 최대
+2회만 MW를 부른다(무료 티어는 사전당 1000회/일). 음원 mp3는 우리 쪽에 복사하지 않고 MW CDN의
+URL만 저장한다.
+
+### 발음 켜기 (선택, 계정 연동이 먼저 되어 있어야 함)
+
+1. [dictionaryapi.com](https://dictionaryapi.com)에 무료 가입하고 키 두 개를 신청한다 —
+   **Learner's Dictionary**(주력, IPA 제공)와 **Collegiate Dictionary**(보조). 무료 티어가
+   딱 2개까지 허용된다.
+2. Edge Function을 배포하고 키를 등록한다:
+   ```bash
+   supabase functions deploy pronounce
+   supabase secrets set MW_LEARNERS_KEY=... MW_COLLEGIATE_KEY=...
+   ```
+
+키를 등록하지 않으면 발음 버튼이 그냥 나타나지 않을 뿐, 나머지는 평소대로 동작한다.
+API 키는 Edge Function 환경변수에만 있고 클라이언트 번들에는 절대 들어가지 않는다.
+
+> **⚠️ MW 무료 키는 비상업 전용이다.** 개인 학습이나 친구와 공유하는 건 해당하지 않지만,
+> 나중에 광고를 붙이거나 유료 앱으로 출시하려면 MW와 별도 계약이 필요하다.
+
 ## 구조
 
 ```
@@ -142,20 +177,25 @@ src/
 │  ├─ select.ts        취약 단어 우선 가중 추출
 │  ├─ storage.ts       localStorage 영속화, 스키마 마이그레이션, 내보내기
 │  ├─ supabase.ts      Supabase 클라이언트 (.env.local 없으면 null)
-│  ├─ sync.ts           pull/push, 최초 로그인 병합 로직 (순수 함수)
-│  └─ useCloudSync.ts  로그인 상태·동기화 트리거를 묶은 React 훅
+│  ├─ sync.ts          pull/push, 최초 로그인 병합 로직 (순수 함수)
+│  ├─ useCloudSync.ts  로그인 상태·동기화 트리거를 묶은 React 훅
+│  └─ pronounce.ts     발음 조회·재생 (실패해도 조용히 비활성)
 ├─ components/
-│  ├─ Home.tsx          대시보드
-│  ├─ AuthBar.tsx       로그인/동기화 상태 표시줄
-│  ├─ WordManager.tsx   단어 등록·편집
-│  ├─ ImportReview.tsx  붙여넣기 검수 표
-│  ├─ SetupScreen.tsx   난이도·시간·문제수 설정
-│  ├─ QuizScreen.tsx    타이머 게임 루프
-│  └─ ResultScreen.tsx  결과·오답 재도전
+│  ├─ Home.tsx             대시보드
+│  ├─ AuthBar.tsx          로그인/동기화 상태 표시줄
+│  ├─ WordManager.tsx      단어 등록·편집
+│  ├─ ImportReview.tsx     붙여넣기 검수 표
+│  ├─ PronounceButton.tsx  발음 재생 버튼 + 발음기호
+│  ├─ SetupScreen.tsx      난이도·시간·문제수 설정
+│  ├─ QuizScreen.tsx       타이머 게임 루프
+│  └─ ResultScreen.tsx     결과·오답 재도전
 └─ types.ts
 
 supabase/
-└─ schema.sql   테이블·RLS 정책 (SQL Editor에 1회 실행)
+├─ schema.sql              테이블·RLS 정책 (SQL Editor에 1회 실행)
+└─ functions/
+   ├─ _shared/mw.ts        MW 응답 파싱 (순수 함수 — Deno·vitest 양쪽에서 사용)
+   └─ pronounce/index.ts   발음 조회 Edge Function (MW 키를 서버에만 둔다)
 ```
 
 ## 로드맵
@@ -164,9 +204,7 @@ localStorage 스키마는 서버로 옮길 걸 염두에 두고 짰다 (`updated
 `SessionResult.date`는 일별 기록이라 출석 기능이 바로 얹힌다.
 
 - **완료 — 계정 & 단어 동기화**: Google 로그인 + Supabase, 기기 간 단어장 자동 동기화.
-- **다음 — 발음**: Merriam-Webster Learner's/Collegiate Dictionary API를 Edge Function 뒤에 두고
-  실제 성우 녹음 mp3 URL과 IPA를 캐싱(`pronunciations` 테이블, 이미 스키마에 있음). 음원이 없는
-  단어는 TTS로 대충 때우지 않고 "발음 없음"으로 표시한다 — 잘못된 발음을 외우는 것보다 없는 게 낫다.
+- **완료 — 발음**: Merriam-Webster 성우 녹음 + IPA. 위 "발음" 절 참고.
 - **다음 — 세션 기록 동기화**: 지금은 단어만 동기화되고 일별 학습 기록은 기기 로컬에만 있다.
 - **다음 — PWA**: 오프라인 설치형으로 먼저 내고, 필요하면 Capacitor로 스토어 배포.
 - **이후 — 대결 방**: 최대 5명이 같은 50문제를 동시에 푸는 방 (Supabase Realtime).

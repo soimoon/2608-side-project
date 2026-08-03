@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS: QuizSettings = {
   strategy: 'weak',
   retypeOnMiss: true,
   requeueWrong: true,
+  autoPlayAudio: true,
 };
 
 function emptyDB(): DB {
@@ -23,6 +24,7 @@ function emptyDB(): DB {
     settings: { ...DEFAULT_SETTINGS },
     history: [],
     sync: { lastPulledAt: 0, lastPushedAt: 0 },
+    pronunciations: {},
   };
 }
 
@@ -68,6 +70,7 @@ function migrateFromV1(parsed: Record<string, unknown>): DB {
     settings: { ...DEFAULT_SETTINGS, ...((parsed.settings as Partial<QuizSettings>) ?? {}) },
     history: Array.isArray(parsed.history) ? (parsed.history as DB['history']) : [],
     sync: { lastPulledAt: 0, lastPushedAt: 0 },
+    pronunciations: {},
   };
 }
 
@@ -82,6 +85,7 @@ export function loadDB(): DB {
         settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
         history: Array.isArray(parsed.history) ? parsed.history : [],
         sync: parsed.sync ?? { lastPulledAt: 0, lastPushedAt: 0 },
+        pronunciations: parsed.pronunciations ?? {},
       };
     }
 

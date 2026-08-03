@@ -1,14 +1,23 @@
 import { useMemo } from 'react';
-import type { QuizSettings, SessionResult, Word } from '../types';
+import type { Pronunciation, QuizSettings, SessionResult, Word } from '../types';
+import { lookupCache } from '../lib/pronounce';
+import PronounceButton from './PronounceButton';
 
 interface Props {
   session: SessionResult;
   allWords: Word[];
+  pronunciations: Record<string, Pronunciation>;
   onRetryWrong: (words: Word[], settings: QuizSettings) => void;
   onHome: () => void;
 }
 
-export default function ResultScreen({ session, allWords, onRetryWrong, onHome }: Props) {
+export default function ResultScreen({
+  session,
+  allWords,
+  pronunciations,
+  onRetryWrong,
+  onHome,
+}: Props) {
   const { attempts, settings } = session;
 
   const summary = useMemo(() => {
@@ -97,6 +106,7 @@ export default function ResultScreen({ session, allWords, onRetryWrong, onHome }
             <thead>
               <tr>
                 <th>영단어</th>
+                <th>발음</th>
                 <th>뜻</th>
                 <th>내 입력</th>
               </tr>
@@ -105,6 +115,9 @@ export default function ResultScreen({ session, allWords, onRetryWrong, onHome }
               {summary.missed.map((a, i) => (
                 <tr key={i}>
                   <td className="en">{a.en}</td>
+                  <td className="nowrap">
+                    <PronounceButton pron={lookupCache(a.en, pronunciations)} size="sm" />
+                  </td>
                   <td>{a.ko}</td>
                   <td className={`muted ${a.verdict}`}>
                     {a.verdict === 'timeout' ? '시간 초과' : a.input.trim() || '—'}

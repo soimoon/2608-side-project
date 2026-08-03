@@ -45,6 +45,27 @@ export interface QuizSettings {
   retypeOnMiss: boolean;
   /** 틀린 단어를 세션 뒤쪽에 다시 출제할지. */
   requeueWrong: boolean;
+  /** 틀렸을 때 정답이 공개되는 순간 발음을 자동 재생할지. */
+  autoPlayAudio: boolean;
+}
+
+/**
+ * 한 단어의 발음. Merriam-Webster에서 받아 pronunciations 테이블에 캐시하고,
+ * 로컬에도 복사해 두어 오프라인에서도 (음원 파일만 받아졌다면) 발음기호는 볼 수 있게 한다.
+ */
+export interface Pronunciation {
+  /** 소문자 철자. 캐시 키. */
+  en: string;
+  /**
+   * 발음기호. source가 'learners'면 국제음성기호(IPA),
+   * 'collegiate'면 MW 자체 표기법이다 — UI에서 구분해 보여준다.
+   */
+  ipa?: string;
+  /** MW CDN의 mp3 주소. 음원을 재호스팅하지 않고 이 URL만 들고 있는다. */
+  audioUrl?: string;
+  /** 'none'은 "두 사전 모두 확인했지만 없었다" — 다시 조회하지 않기 위해 이것도 캐시한다. */
+  source: 'learners' | 'collegiate' | 'none';
+  fetchedAt: number;
 }
 
 export type Verdict = 'correct' | 'near' | 'wrong' | 'timeout';
@@ -86,4 +107,6 @@ export interface DB {
   settings: QuizSettings;
   history: SessionResult[];
   sync: SyncCursor;
+  /** 발음 캐시 (소문자 철자 → 발음). 서버 캐시의 로컬 사본이라 언제 지워도 안전하다. */
+  pronunciations: Record<string, Pronunciation>;
 }

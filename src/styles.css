@@ -352,6 +352,42 @@ input[type='radio'] {
   font-size: 0.9rem;
 }
 
+/* ---------- 발음 ---------- */
+.pron {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.pron-play {
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  line-height: 1.4;
+  color: var(--text);
+}
+.pron-play:hover {
+  border-color: var(--accent);
+}
+.pron-ipa {
+  font-family: var(--mono);
+  color: var(--muted);
+  font-size: 0.9em;
+}
+.pron-none {
+  font-size: 0.8rem;
+}
+.pron.sm .pron-play {
+  padding: 1px 6px;
+  font-size: 0.8rem;
+}
+.pron.sm .pron-ipa {
+  font-size: 0.78rem;
+}
+
 /* ---------- 붙여넣기 검수 표 ---------- */
 .review {
   display: flex;

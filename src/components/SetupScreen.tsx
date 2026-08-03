@@ -220,6 +220,20 @@ export default function SetupScreen({ words, settings, onSettingsChange, onStart
             <small>같은 세션 뒷부분에 한 번 더 나옵니다. (통계에는 첫 시도만 반영)</small>
           </span>
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={s.autoPlayAudio}
+            onChange={(e) => patch({ autoPlayAudio: e.target.checked })}
+          />
+          <span>
+            <b>틀리면 발음 자동 재생</b>
+            <small>
+              정답이 공개될 때 미국식 발음(Merriam-Webster 성우 녹음)을 들려줍니다. 음원이 없는
+              단어는 합성음으로 대체하지 않고 그냥 넘어갑니다.
+            </small>
+          </span>
+        </label>
       </section>
 
       <div className="sticky-actions">

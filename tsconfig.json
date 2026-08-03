@@ -19,5 +19,7 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": false
   },
-  "include": ["src", "vite.config.ts"]
+  // supabase/functions/_shared는 Deno API를 쓰지 않는 순수 로직이라 여기서 함께 타입 검사한다.
+  // pronounce/index.ts는 Deno 전역(Deno.serve 등)을 쓰므로 제외 — 배포 시 Deno가 검사한다.
+  "include": ["src", "vite.config.ts", "supabase/functions/_shared"]
 }

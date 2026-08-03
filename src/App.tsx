@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Attempt, DB, QuizSettings, SessionResult, Word } from './types';
 import { activeWords, loadDB, newId, saveDB } from './lib/storage';
 import { useCloudSync } from './lib/useCloudSync';
+import { fetchPronunciations, missingFromCache } from './lib/pronounce';
 import Home from './components/Home';
 import WordManager from './components/WordManager';
 import SetupScreen from './components/SetupScreen';
@@ -23,6 +24,10 @@ export default function App() {
     saveDB(db);
   }, [db]);
 
+  // 콜백이 최신 db를 읽되 db가 바뀔 때마다 새로 만들어지지 않도록 하는 참조.
+  const dbRef = useRef(db);
+  dbRef.current = db;
+
   // 소프트 삭제된 단어는 어느 화면에도 보이면 안 된다. 여기서 한 번만 걸러 아래로 흘려보낸다.
   const words = useMemo(() => activeWords(db.words), [db.words]);
 
@@ -37,10 +42,36 @@ export default function App() {
     setDB((d) => ({ ...d, settings }));
   }, []);
 
-  const startQuiz = useCallback((words: Word[], settings: QuizSettings) => {
-    setDB((d) => ({ ...d, settings }));
-    setScreen({ name: 'quiz', words, settings });
+  /**
+   * 아직 캐시에 없는 단어의 발음을 받아 로컬 캐시에 넣는다.
+   * 실패해도 조용히 넘어간다 — 발음은 부가 기능이라 학습을 막으면 안 된다.
+   */
+  const cachePronunciations = useCallback(async (targets: Word[]) => {
+    const missing = missingFromCache(
+      targets.map((w) => w.en),
+      dbRef.current.pronunciations,
+    );
+    if (missing.length === 0) return;
+
+    const fetched = await fetchPronunciations(missing);
+    if (fetched.length === 0) return;
+
+    setDB((d) => {
+      const next = { ...d.pronunciations };
+      for (const p of fetched) next[p.en] = p;
+      return { ...d, pronunciations: next };
+    });
   }, []);
+
+  const startQuiz = useCallback(
+    (words: Word[], settings: QuizSettings) => {
+      setDB((d) => ({ ...d, settings }));
+      setScreen({ name: 'quiz', words, settings });
+      // 퀴즈 시작과 동시에 미리 받아 둔다. 문제 중간에 네트워크를 기다리지 않도록.
+      void cachePronunciations(words);
+    },
+    [cachePronunciations],
+  );
 
   /** 퀴즈 종료: 단어별 통계를 갱신하고 세션 기록을 남긴다. */
   const finishQuiz = useCallback(
@@ -100,7 +131,15 @@ export default function App() {
           />
         );
       case 'words':
-        return <WordManager words={words} setWords={setWords} onBack={home} />;
+        return (
+          <WordManager
+            words={words}
+            setWords={setWords}
+            pronunciations={db.pronunciations}
+            onFetchPronunciations={cachePronunciations}
+            onBack={home}
+          />
+        );
       case 'setup':
         return (
           <SetupScreen
@@ -116,6 +155,7 @@ export default function App() {
           <QuizScreen
             words={screen.words}
             settings={screen.settings}
+            pronunciations={db.pronunciations}
             onFinish={finishQuiz}
             onAbort={home}
           />
@@ -125,12 +165,24 @@ export default function App() {
           <ResultScreen
             session={screen.session}
             allWords={words}
+            pronunciations={db.pronunciations}
             onRetryWrong={startQuiz}
             onHome={home}
           />
         );
     }
-  }, [screen, db, words, sync, setWords, setSettings, startQuiz, finishQuiz, home]);
+  }, [
+    screen,
+    db,
+    words,
+    sync,
+    setWords,
+    setSettings,
+    startQuiz,
+    finishQuiz,
+    cachePronunciations,
+    home,
+  ]);
 
   return <div className="app">{body}</div>;
 }

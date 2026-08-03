@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Attempt, QuizSettings, Verdict, Word } from '../types';
+import type { Attempt, Pronunciation, QuizSettings, Verdict, Word } from '../types';
 import { judge, normalize } from '../lib/judge';
 import { maskWord } from '../lib/mask';
+import { lookupCache, playAudio } from '../lib/pronounce';
+import PronounceButton from './PronounceButton';
 
 interface QItem {
   word: Word;
@@ -21,11 +23,18 @@ const VERDICT_TEXT: Record<Verdict, string> = {
 interface Props {
   words: Word[];
   settings: QuizSettings;
+  pronunciations: Record<string, Pronunciation>;
   onFinish: (attempts: Attempt[], settings: QuizSettings, startedAt: number) => void;
   onAbort: () => void;
 }
 
-export default function QuizScreen({ words, settings, onFinish, onAbort }: Props) {
+export default function QuizScreen({
+  words,
+  settings,
+  pronunciations,
+  onFinish,
+  onAbort,
+}: Props) {
   const [queue, setQueue] = useState<QItem[]>(() => words.map((w) => ({ word: w, requeued: false })));
   const [idx, setIdx] = useState(0);
   const [phase, setPhase] = useState<Phase>('answering');
@@ -48,6 +57,7 @@ export default function QuizScreen({ words, settings, onFinish, onAbort }: Props
 
   const item = queue[idx];
   const answer = item?.word.en ?? '';
+  const pron = lookupCache(answer, pronunciations);
 
   const revealed = useMemo(
     () => maskWord(answer, settings.hintRatio, seed.current + idx),
@@ -132,6 +142,18 @@ export default function QuizScreen({ words, settings, onFinish, onAbort }: Props
   useEffect(() => {
     inputRef.current?.focus();
   }, [idx, phase]);
+
+  /**
+   * 틀렸을 때 정답이 공개되는 순간 발음을 들려준다 — 철자를 다시 치면서 소리까지 같이
+   * 들어가야 기억에 남는다. 맞힌 문제는 0.55초 만에 넘어가므로 재생하지 않는다
+   * (소리가 잘리기만 하고 방해가 된다).
+   */
+  useEffect(() => {
+    if (!settings.autoPlayAudio) return;
+    if (phase === 'answering' || verdict === null || verdict === 'correct') return;
+    if (!pron?.audioUrl) return;
+    playAudio(pron.audioUrl);
+  }, [phase, verdict, pron, settings.autoPlayAudio]);
 
   // 정답이면 잠깐 보여주고 자동으로 넘어간다.
   useEffect(() => {
@@ -228,10 +250,13 @@ export default function QuizScreen({ words, settings, onFinish, onAbort }: Props
             <>
               <span className={`verdict ${verdict}`}>{VERDICT_TEXT[verdict]}</span>
               {verdict !== 'correct' && (
-                <span className="answer-reveal">
-                  정답: <b>{answer}</b>
-                  {submitted.trim() && <span className="muted"> · 입력: {submitted.trim()}</span>}
-                </span>
+                <>
+                  <span className="answer-reveal">
+                    정답: <b>{answer}</b>
+                    {submitted.trim() && <span className="muted"> · 입력: {submitted.trim()}</span>}
+                  </span>
+                  <PronounceButton pron={pron} />
+                </>
               )}
             </>
           )}

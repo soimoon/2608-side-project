@@ -1,9 +1,11 @@
 import { useMemo, useRef, useState } from 'react';
-import type { Word } from '../types';
+import type { Pronunciation, Word } from '../types';
 import { guessSplit, parseBulk } from '../lib/parse';
 import { DEFAULT_DECK, download, exportCSV, exportWordsJSON, makeWord } from '../lib/storage';
 import { deckNames } from '../lib/select';
+import { lookupCache, missingFromCache } from '../lib/pronounce';
 import ImportReview, { type ReviewRow } from './ImportReview';
+import PronounceButton from './PronounceButton';
 
 const SAMPLE = `synthesize\t통합하다, 종합하다
 ubiquitous\t어디에나 있는
@@ -13,16 +15,26 @@ ubiquitous\t어디에나 있는
 interface Props {
   words: Word[];
   setWords: (updater: (prev: Word[]) => Word[]) => void;
+  pronunciations: Record<string, Pronunciation>;
+  /** 아직 캐시에 없는 단어의 발음을 받아온다. 로그인·설정이 없으면 아무 일도 하지 않는다. */
+  onFetchPronunciations: (targets: Word[]) => Promise<void>;
   onBack: () => void;
 }
 
-export default function WordManager({ words, setWords, onBack }: Props) {
+export default function WordManager({
+  words,
+  setWords,
+  pronunciations,
+  onFetchPronunciations,
+  onBack,
+}: Props) {
   const [bulk, setBulk] = useState('');
   const [deck, setDeck] = useState(DEFAULT_DECK);
   const [reviewRows, setReviewRows] = useState<ReviewRow[] | null>(null);
   const [query, setQuery] = useState('');
   const [filterDeck, setFilterDeck] = useState('');
   const [notice, setNotice] = useState('');
+  const [loadingPron, setLoadingPron] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const decks = useMemo(() => deckNames(words), [words]);
@@ -39,6 +51,22 @@ export default function WordManager({ words, setWords, onBack }: Props) {
       .slice()
       .reverse(); // 최근에 넣은 단어가 위로
   }, [words, query, filterDeck]);
+
+  // 지금 보이는 목록 중 아직 발음을 안 받아온 단어 수.
+  const pronMissing = useMemo(
+    () => missingFromCache(visible.map((w) => w.en), pronunciations).length,
+    [visible, pronunciations],
+  );
+
+  async function loadPronunciations() {
+    setLoadingPron(true);
+    setNotice('');
+    try {
+      await onFetchPronunciations(visible);
+    } finally {
+      setLoadingPron(false);
+    }
+  }
 
   /**
    * 붙여넣은 텍스트를 검수 테이블로 옮긴다. 이 시점부터 텍스트박스와는 분리된
@@ -245,6 +273,11 @@ export default function WordManager({ words, setWords, onBack }: Props) {
                 </option>
               ))}
             </select>
+            {pronMissing > 0 && (
+              <button className="btn ghost sm" disabled={loadingPron} onClick={loadPronunciations}>
+                {loadingPron ? '발음 불러오는 중…' : `발음 불러오기 (${pronMissing})`}
+              </button>
+            )}
             {filterDeck && (
               <button className="btn danger sm" onClick={() => removeDeck(filterDeck)}>
                 이 단어장 삭제
@@ -260,6 +293,7 @@ export default function WordManager({ words, setWords, onBack }: Props) {
             <thead>
               <tr>
                 <th>영단어</th>
+                <th>발음</th>
                 <th>뜻</th>
                 <th>단어장</th>
                 <th>정답률</th>
@@ -275,6 +309,9 @@ export default function WordManager({ words, setWords, onBack }: Props) {
                       onChange={(e) => update(w.id, { en: e.target.value })}
                       className="cell en"
                     />
+                  </td>
+                  <td className="nowrap">
+                    <PronounceButton pron={lookupCache(w.en, pronunciations)} size="sm" />
                   </td>
                   <td>
                     <input
