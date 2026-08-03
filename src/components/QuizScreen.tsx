@@ -30,6 +30,8 @@ export default function QuizScreen({ words, settings, onFinish, onAbort }: Props
   const [idx, setIdx] = useState(0);
   const [phase, setPhase] = useState<Phase>('answering');
   const [input, setInput] = useState('');
+  /** 채점 직후 입력칸은 비우므로, 피드백에 보여줄 원래 입력을 따로 들고 있는다. */
+  const [submitted, setSubmitted] = useState('');
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [remaining, setRemaining] = useState(settings.seconds);
@@ -41,6 +43,8 @@ export default function QuizScreen({ words, settings, onFinish, onAbort }: Props
   const pending = useRef<{ queue: QItem[]; attempts: Attempt[] } | null>(null);
   /** 세션마다 공개 위치가 달라지도록 하는 마스킹 시드. */
   const seed = useRef(Math.floor(Math.random() * 2 ** 31));
+  /** 현재 문제에 이미 답을 기록했는지. Enter와 시간 초과의 이중 제출을 막는다. */
+  const answered = useRef(false);
 
   const item = queue[idx];
   const answer = item?.word.en ?? '';
@@ -59,6 +63,7 @@ export default function QuizScreen({ words, settings, onFinish, onAbort }: Props
       onFinish(a, settings, sessionStart.current);
       return;
     }
+    answered.current = false;
     setIdx(idx + 1);
     setPhase('answering');
     setInput('');
@@ -68,6 +73,9 @@ export default function QuizScreen({ words, settings, onFinish, onAbort }: Props
   const submit = useCallback(
     (v: Verdict, typed: string) => {
       if (!item) return;
+      // 제출과 시간 초과가 동시에 걸리는 경합을 막는다. 한 문제당 한 번만 기록한다.
+      if (answered.current) return;
+      answered.current = true;
 
       const attempt: Attempt = {
         wordId: item.word.id,
@@ -87,6 +95,7 @@ export default function QuizScreen({ words, settings, onFinish, onAbort }: Props
       setAttempts(nextAttempts);
       pending.current = { queue: nextQueue, attempts: nextAttempts };
       setVerdict(v);
+      setSubmitted(typed);
 
       if (v === 'correct') {
         setPhase('feedback');
@@ -205,7 +214,8 @@ export default function QuizScreen({ words, settings, onFinish, onAbort }: Props
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}
-          disabled={phase === 'feedback'}
+          // disabled로 두면 포커스가 빠져 Enter로 다음 문제로 넘어갈 수 없다.
+          readOnly={phase === 'feedback'}
           placeholder={phase === 'retype' ? '정답을 그대로 입력하세요' : '전체 단어를 입력'}
           autoComplete="off"
           autoCorrect="off"
@@ -220,7 +230,7 @@ export default function QuizScreen({ words, settings, onFinish, onAbort }: Props
               {verdict !== 'correct' && (
                 <span className="answer-reveal">
                   정답: <b>{answer}</b>
-                  {input.trim() && <span className="muted"> · 입력: {input.trim()}</span>}
+                  {submitted.trim() && <span className="muted"> · 입력: {submitted.trim()}</span>}
                 </span>
               )}
             </>
