@@ -222,7 +222,18 @@ export default function QuizScreen({
       </div>
 
       <div className="quiz-body">
-        <p className="meaning">{item.word.ko}</p>
+        {item.word.ko.length > 1 ? (
+          <div className="meaning-list">
+            {item.word.ko.map((m, i) => (
+              <p key={i} className="meaning multi">
+                <span className="meaning-num">{i + 1}</span>
+                {m}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="meaning">{item.word.ko[0]}</p>
+        )}
 
         <div className="mask" aria-label={`${answer.length}글자`}>
           {[...answer].map((ch, i) =>

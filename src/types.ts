@@ -13,8 +13,14 @@ export interface Word {
   id: string;
   /** 영단어 또는 숙어. 정답 판정은 normalize() 후 비교한다. */
   en: string;
-  /** 한글 뜻. 여러 개면 쉼표로 이어 쓴다. */
-  ko: string;
+  /**
+   * 한글 뜻 목록, 순서대로 1/2/3...으로 표시된다. 붙여넣기로 등록한 단어는 항상
+   * 원소 1개짜리 배열이고(파싱은 줄당 하나의 뜻만 뽑는다), 단어 하나에 여러 뜻을
+   * 붙이고 싶으면 단어장 관리의 "단어 직접 추가" 폼에서 뜻을 여러 개 입력한다.
+   * 뜻 안에 유의어를 쉼표로 나열하는 건 그대로 지원한다 — 배열은 "서로 다른 뜻"을
+   * 나누는 용도고, 쉼표는 "같은 뜻의 다른 표현"을 나열하는 용도다.
+   */
+  ko: string[];
   /** 단어장 이름 (예: "토플 초록책 Day 1"). */
   deck: string;
   createdAt: number;
@@ -74,7 +80,7 @@ export type Verdict = 'correct' | 'near' | 'wrong' | 'timeout';
 export interface Attempt {
   wordId: string;
   en: string;
-  ko: string;
+  ko: string[];
   input: string;
   verdict: Verdict;
   /** 문제 제시부터 제출까지 걸린 시간(ms). 시간 초과면 제한 시간과 같다. */
@@ -110,7 +116,7 @@ export interface SyncCursor {
 }
 
 export interface DB {
-  version: 2;
+  version: 3;
   words: Word[];
   settings: QuizSettings;
   history: SessionResult[];

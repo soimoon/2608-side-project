@@ -118,7 +118,7 @@ export default function ResultScreen({
                   <td className="nowrap">
                     <PronounceButton pron={lookupCache(a.en, pronunciations)} size="sm" />
                   </td>
-                  <td>{a.ko}</td>
+                  <td>{a.ko.join(' / ')}</td>
                   <td className={`muted ${a.verdict}`}>
                     {a.verdict === 'timeout' ? '시간 초과' : a.input.trim() || '—'}
                   </td>

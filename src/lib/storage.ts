@@ -1,8 +1,9 @@
 import type { DB, QuizSettings, Word } from '../types';
 
-const KEY = 'voca-quiz/v2';
-/** v2 이전 데이터. 있으면 1회 마이그레이션하고, 원본은 롤백 대비로 남겨 둔다. */
-const LEGACY_KEY = 'voca-quiz/v1';
+const KEY = 'voca-quiz/v3';
+/** v3 이전 데이터. 있으면 1회 마이그레이션하고, 원본은 롤백 대비로 남겨 둔다. */
+const LEGACY_V2_KEY = 'voca-quiz/v2';
+const LEGACY_V1_KEY = 'voca-quiz/v1';
 
 export const DEFAULT_DECK = '기본';
 
@@ -19,7 +20,7 @@ export const DEFAULT_SETTINGS: QuizSettings = {
 
 function emptyDB(): DB {
   return {
-    version: 2,
+    version: 3,
     words: [],
     settings: { ...DEFAULT_SETTINGS },
     history: [],
@@ -32,12 +33,21 @@ export function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export function makeWord(en: string, ko: string, deck = DEFAULT_DECK): Word {
+/** v1·v2 시절엔 ko가 문자열 하나였다. 그걸 원소 1개짜리 배열로, 혹시 모를 이상값도 안전하게 정리한다. */
+function toKoArray(ko: unknown): string[] {
+  if (Array.isArray(ko)) {
+    return ko.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map((s) => s.trim());
+  }
+  if (typeof ko === 'string' && ko.trim() !== '') return [ko.trim()];
+  return [];
+}
+
+export function makeWord(en: string, ko: string[], deck = DEFAULT_DECK): Word {
   const now = Date.now();
   return {
     id: newId(),
     en: en.trim(),
-    ko: ko.trim(),
+    ko: ko.map((k) => k.trim()).filter(Boolean),
     deck,
     createdAt: now,
     updatedAt: now,
@@ -45,27 +55,34 @@ export function makeWord(en: string, ko: string, deck = DEFAULT_DECK): Word {
   };
 }
 
-/** v1(스키마 버전 없이 동기화 필드가 없던 시절) 데이터를 v2 모양으로 채워 넣는다. */
-function migrateFromV1(parsed: Record<string, unknown>): DB {
-  const rawWords = Array.isArray(parsed.words) ? (parsed.words as Partial<Word>[]) : [];
-  const words: Word[] = rawWords
-    .filter((w): w is Partial<Word> & { id: string; en: string; ko: string } =>
-      Boolean(w && w.id && w.en && w.ko),
-    )
-    .map((w) => ({
-      id: w.id,
-      en: w.en,
-      ko: w.ko,
-      deck: w.deck ?? DEFAULT_DECK,
-      createdAt: w.createdAt ?? Date.now(),
-      // v1에는 updatedAt이 없었다. createdAt으로 채워야 동기화가 "전부 다 바뀐 행"으로
-      // 오해하지 않는다 (그래도 최초 1회 push 때는 전부 올라가는 게 맞으므로 문제는 없다).
-      updatedAt: w.updatedAt ?? w.createdAt ?? Date.now(),
-      stats: w.stats ?? { seen: 0, correct: 0, wrong: 0, streak: 0 },
-    }));
+function normalizeLegacyWord(w: Record<string, unknown>): Word | null {
+  const ko = toKoArray(w.ko);
+  const id = w.id;
+  const en = w.en;
+  if (typeof id !== 'string' || typeof en !== 'string' || !en.trim() || ko.length === 0) return null;
+
+  const createdAt = typeof w.createdAt === 'number' ? w.createdAt : Date.now();
+  return {
+    id,
+    en,
+    ko,
+    deck: typeof w.deck === 'string' ? w.deck : DEFAULT_DECK,
+    createdAt,
+    // v1엔 updatedAt이 아예 없었다. createdAt으로 채워야 동기화가 "전부 다 바뀐 행"으로
+    // 오해하지 않는다(그래도 최초 1회 push 때는 전부 올라가는 게 맞으므로 문제는 없다).
+    updatedAt: typeof w.updatedAt === 'number' ? w.updatedAt : createdAt,
+    deletedAt: typeof w.deletedAt === 'number' ? w.deletedAt : undefined,
+    stats: (w.stats as Word['stats']) ?? { seen: 0, correct: 0, wrong: 0, streak: 0 },
+  };
+}
+
+/** v1·v2(ko가 문자열이던 시절) 데이터를 v3 모양으로 채워 넣는다. 두 버전 모두 구조가 같아 하나로 처리한다. */
+function migrateLegacy(parsed: Record<string, unknown>): DB {
+  const rawWords = Array.isArray(parsed.words) ? (parsed.words as Record<string, unknown>[]) : [];
+  const words = rawWords.map(normalizeLegacyWord).filter((w): w is Word => w !== null);
 
   return {
-    version: 2,
+    version: 3,
     words,
     settings: { ...DEFAULT_SETTINGS, ...((parsed.settings as Partial<QuizSettings>) ?? {}) },
     history: Array.isArray(parsed.history) ? (parsed.history as DB['history']) : [],
@@ -80,8 +97,11 @@ export function loadDB(): DB {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<DB>;
       return {
-        version: 2,
-        words: Array.isArray(parsed.words) ? parsed.words : [],
+        version: 3,
+        // 방어적으로 한 번 더 배열화한다 — 수동으로 손댄 localStorage 등 이상값 대비.
+        words: Array.isArray(parsed.words)
+          ? parsed.words.map((w) => ({ ...w, ko: toKoArray(w.ko) }))
+          : [],
         settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
         history: Array.isArray(parsed.history) ? parsed.history : [],
         sync: parsed.sync ?? { lastPulledAt: 0, lastPushedAt: 0 },
@@ -89,12 +109,14 @@ export function loadDB(): DB {
       };
     }
 
-    // v2 키가 없으면 v1(구버전)이 있는지 확인해 단어를 잃지 않고 옮긴다.
-    const legacyRaw = localStorage.getItem(LEGACY_KEY);
-    if (legacyRaw) {
-      const migrated = migrateFromV1(JSON.parse(legacyRaw) as Record<string, unknown>);
-      saveDB(migrated); // 바로 v2로 저장해, 다음부터는 이 분기를 타지 않는다.
-      return migrated;
+    // v3 키가 없으면 구버전이 있는지 순서대로 확인해 단어를 잃지 않고 옮긴다.
+    for (const legacyKey of [LEGACY_V2_KEY, LEGACY_V1_KEY]) {
+      const legacyRaw = localStorage.getItem(legacyKey);
+      if (legacyRaw) {
+        const migrated = migrateLegacy(JSON.parse(legacyRaw) as Record<string, unknown>);
+        saveDB(migrated); // 바로 v3로 저장해, 다음부터는 이 분기를 타지 않는다.
+        return migrated;
+      }
     }
 
     return emptyDB();
@@ -126,7 +148,9 @@ export function exportCSV(words: Word[]): string {
   const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
   const head = 'en,ko,deck,seen,correct,wrong';
   const body = words.map((w) =>
-    [esc(w.en), esc(w.ko), esc(w.deck), w.stats.seen, w.stats.correct, w.stats.wrong].join(','),
+    [esc(w.en), esc(w.ko.join(' / ')), esc(w.deck), w.stats.seen, w.stats.correct, w.stats.wrong].join(
+      ',',
+    ),
   );
   return [head, ...body].join('\n');
 }

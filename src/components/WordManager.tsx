@@ -35,6 +35,9 @@ export default function WordManager({
   const [filterDeck, setFilterDeck] = useState('');
   const [notice, setNotice] = useState('');
   const [loadingPron, setLoadingPron] = useState(false);
+  const [manualEn, setManualEn] = useState('');
+  // "+ 뜻 추가" 버튼을 누를 때마다 빈 칸이 하나씩 늘어난다.
+  const [manualKo, setManualKo] = useState<string[]>(['']);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const decks = useMemo(() => deckNames(words), [words]);
@@ -47,7 +50,9 @@ export default function WordManager({
     const q = query.trim().toLowerCase();
     return words
       .filter((w) => (filterDeck ? w.deck === filterDeck : true))
-      .filter((w) => (q ? w.en.toLowerCase().includes(q) || w.ko.includes(query.trim()) : true))
+      .filter((w) =>
+        q ? w.en.toLowerCase().includes(q) || w.ko.some((m) => m.includes(query.trim())) : true,
+      )
       .slice()
       .reverse(); // 최근에 넣은 단어가 위로
   }, [words, query, filterDeck]);
@@ -113,7 +118,7 @@ export default function WordManager({
         continue;
       }
       seen.add(key);
-      added.push(makeWord(r.en, r.ko, target));
+      added.push(makeWord(r.en, [r.ko], target));
     }
 
     setWords((prev) => [...prev, ...added]);
@@ -154,6 +159,33 @@ export default function WordManager({
       prev.map((w) => (w.deck === name ? { ...w, deletedAt: now, updatedAt: now } : w)),
     );
     if (filterDeck === name) setFilterDeck('');
+  }
+
+  function updateManualMeaning(i: number, value: string) {
+    setManualKo((prev) => prev.map((m, idx) => (idx === i ? value : m)));
+  }
+
+  function addManualMeaning() {
+    setManualKo((prev) => [...prev, '']);
+  }
+
+  function removeManualMeaning(i: number) {
+    setManualKo((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)));
+  }
+
+  function submitManualWord() {
+    const en = manualEn.trim();
+    const ko = manualKo.map((m) => m.trim()).filter(Boolean);
+    if (!en || ko.length === 0) return;
+    if (existing.has(en.toLowerCase())) {
+      setNotice(`이미 등록된 단어입니다: ${en}`);
+      return;
+    }
+    const target = deck.trim() || DEFAULT_DECK;
+    setWords((prev) => [...prev, makeWord(en, ko, target)]);
+    setManualEn('');
+    setManualKo(['']);
+    setNotice(`"${en}" 추가됨 (뜻 ${ko.length}개)`);
   }
 
   return (
@@ -256,6 +288,58 @@ export default function WordManager({
       </section>
 
       <section className="card">
+        <h3>단어 직접 추가</h3>
+        <p className="muted">
+          한 단어에 뜻을 여러 개 붙이고 싶을 때 쓴다. 퀴즈에서는 순서대로 1, 2, 3…으로 보여준다.
+        </p>
+
+        <div className="row wrap">
+          <label className="field">
+            <span>영단어</span>
+            <input
+              value={manualEn}
+              onChange={(e) => setManualEn(e.target.value)}
+              placeholder="예: exploit"
+            />
+          </label>
+          <label className="field">
+            <span>단어장</span>
+            <input list="deck-list" value={deck} onChange={(e) => setDeck(e.target.value)} />
+          </label>
+        </div>
+
+        <div className="manual-ko-list">
+          {manualKo.map((m, i) => (
+            <div className="row manual-ko-row" key={i}>
+              <span className="ko-index">{i + 1}</span>
+              <input
+                className="cell"
+                value={m}
+                onChange={(e) => updateManualMeaning(i, e.target.value)}
+                placeholder={i === 0 ? '뜻 (예: 이용하다)' : '또 다른 뜻'}
+              />
+              {manualKo.length > 1 && (
+                <button className="btn ghost sm" onClick={() => removeManualMeaning(i)}>
+                  삭제
+                </button>
+              )}
+            </div>
+          ))}
+          <button className="btn ghost sm" onClick={addManualMeaning}>
+            + 뜻 추가
+          </button>
+        </div>
+
+        <button
+          className="btn primary"
+          disabled={!manualEn.trim() || manualKo.every((m) => !m.trim())}
+          onClick={submitManualWord}
+        >
+          등록
+        </button>
+      </section>
+
+      <section className="card">
         <div className="row between">
           <h3>등록된 단어 {words.length}개</h3>
           <div className="row">
@@ -315,9 +399,17 @@ export default function WordManager({
                   </td>
                   <td>
                     <input
-                      value={w.ko}
-                      onChange={(e) => update(w.id, { ko: e.target.value })}
+                      value={w.ko.join(' / ')}
+                      onChange={(e) =>
+                        update(w.id, {
+                          ko: e.target.value
+                            .split('/')
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        })
+                      }
                       className="cell"
+                      title="뜻이 여러 개면 / 로 구분 (예: 이용하다 / 위업, 공적)"
                     />
                   </td>
                   <td className="nowrap muted">{w.deck}</td>

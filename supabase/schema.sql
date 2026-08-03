@@ -42,7 +42,8 @@ create table if not exists words (
   id text primary key,
   user_id uuid not null references auth.users on delete cascade,
   en text not null,
-  ko text not null,
+  -- 뜻 목록. 순서대로 1/2/3...으로 표시된다(예: 다의어). 단순 단어는 원소 1개짜리 배열.
+  ko text[] not null,
   deck text not null default '기본',
   seen int not null default 0,
   correct int not null default 0,
@@ -110,3 +111,10 @@ create policy "pronunciations_select_all" on pronunciations
   for select using (true);
 -- insert/update 정책을 두지 않는다: service role(Edge Function)만 쓸 수 있어야 하고,
 -- service role은 RLS를 우회하므로 별도 정책이 필요 없다.
+
+-- ---------- 마이그레이션: words.ko  text → text[] ----------
+-- 이미 이 스키마로 프로젝트를 만들어서 words.ko가 text 컬럼인 상태라면, 위 CREATE TABLE은
+-- "if not exists"라 조용히 무시되고 컬럼 타입은 안 바뀐다. 아래를 한 번만 따로 실행한다.
+-- 기존 값 "통합하다"는 원소 1개짜리 배열 {"통합하다"}가 되어 데이터가 그대로 보존된다.
+--
+--   alter table words alter column ko type text[] using array[ko]::text[];

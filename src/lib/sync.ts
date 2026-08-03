@@ -15,7 +15,8 @@ interface RemoteWordRow {
   id: string;
   user_id: string;
   en: string;
-  ko: string;
+  /** Postgres text[] 컬럼. postgrest가 JS 배열로 그대로 주고받는다. */
+  ko: string[];
   deck: string;
   seen: number;
   correct: number;
@@ -154,12 +155,14 @@ export function mergeGuestWithCloud(local: Word[], remote: Word[]): MergeOutcome
     remoteByEn.delete(key);
     combinedCount++;
 
-    const koParts = [...new Set([l.ko.trim(), r.ko.trim()].filter(Boolean))];
+    // 로컬 쪽 뜻 순서를 유지하고, 클라우드에만 있던 뜻(똑같은 문자열이 아닌 것)만 뒤에 덧붙인다.
+    const ko = [...l.ko];
+    for (const meaning of r.ko) if (!ko.includes(meaning)) ko.push(meaning);
     const lastSeenAt = Math.max(l.stats.lastSeenAt ?? 0, r.stats.lastSeenAt ?? 0) || undefined;
 
     merged.push({
       ...l,
-      ko: koParts.join(', '),
+      ko,
       stats: {
         seen: l.stats.seen + r.stats.seen,
         correct: l.stats.correct + r.stats.correct,
