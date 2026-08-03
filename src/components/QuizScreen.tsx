@@ -143,24 +143,33 @@ export default function QuizScreen({
     inputRef.current?.focus();
   }, [idx, phase]);
 
+  /** 이번 문제에서 실제로 소리가 날 것인지. 정답 후 대기 시간을 여기에 맞춘다. */
+  const willPlayAudio = settings.autoPlayAudio && Boolean(pron?.audioUrl);
+
   /**
-   * 틀렸을 때 정답이 공개되는 순간 발음을 들려준다 — 철자를 다시 치면서 소리까지 같이
-   * 들어가야 기억에 남는다. 맞힌 문제는 0.55초 만에 넘어가므로 재생하지 않는다
-   * (소리가 잘리기만 하고 방해가 된다).
+   * 채점되는 순간 발음을 들려준다 — 맞혔든 틀렸든. 방금 떠올린 철자와 소리를 같이
+   * 넣어야 기억에 남는다.
+   *
+   * 문제당 한 번만 재생한다. 퀴즈 도중 발음 미리 받기가 끝나면 pronunciations가
+   * 바뀌는데, 그때 이미 피드백 화면이면 같은 소리가 다시 나기 때문이다.
    */
+  const audioPlayedFor = useRef(-1);
   useEffect(() => {
     if (!settings.autoPlayAudio) return;
-    if (phase === 'answering' || verdict === null || verdict === 'correct') return;
+    if (phase === 'answering' || verdict === null) return;
     if (!pron?.audioUrl) return;
+    if (audioPlayedFor.current === idx) return;
+    audioPlayedFor.current = idx;
     playAudio(pron.audioUrl);
-  }, [phase, verdict, pron, settings.autoPlayAudio]);
+  }, [idx, phase, verdict, pron, settings.autoPlayAudio]);
 
   // 정답이면 잠깐 보여주고 자동으로 넘어간다.
   useEffect(() => {
     if (phase !== 'feedback' || verdict !== 'correct') return;
-    const t = window.setTimeout(advance, 550);
+    // 발음이 나가는 중이면 소리가 잘리지 않게 조금 더 기다린다 (단어 발음은 보통 1초 안쪽).
+    const t = window.setTimeout(advance, willPlayAudio ? 1200 : 550);
     return () => window.clearTimeout(t);
-  }, [phase, verdict, advance]);
+  }, [phase, verdict, advance, willPlayAudio]);
 
   // 따라 치기: 정확히 입력하면 자동으로 다음 문제로.
   useEffect(() => {
@@ -250,14 +259,13 @@ export default function QuizScreen({
             <>
               <span className={`verdict ${verdict}`}>{VERDICT_TEXT[verdict]}</span>
               {verdict !== 'correct' && (
-                <>
-                  <span className="answer-reveal">
-                    정답: <b>{answer}</b>
-                    {submitted.trim() && <span className="muted"> · 입력: {submitted.trim()}</span>}
-                  </span>
-                  <PronounceButton pron={pron} />
-                </>
+                <span className="answer-reveal">
+                  정답: <b>{answer}</b>
+                  {submitted.trim() && <span className="muted"> · 입력: {submitted.trim()}</span>}
+                </span>
               )}
+              {/* 맞혔을 때도 보여준다 — 자동 재생을 놓쳤으면 다시 들을 수 있게. */}
+              <PronounceButton pron={pron} />
             </>
           )}
         </div>

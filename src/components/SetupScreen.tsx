@@ -227,10 +227,11 @@ export default function SetupScreen({ words, settings, onSettingsChange, onStart
             onChange={(e) => patch({ autoPlayAudio: e.target.checked })}
           />
           <span>
-            <b>틀리면 발음 자동 재생</b>
+            <b>발음 자동 재생</b>
             <small>
-              정답이 공개될 때 미국식 발음(Merriam-Webster 성우 녹음)을 들려줍니다. 음원이 없는
-              단어는 합성음으로 대체하지 않고 그냥 넘어갑니다.
+              맞히든 틀리든 채점되는 순간 미국식 발음(Merriam-Webster 성우 녹음)이 자동으로
+              나옵니다. 소리가 잘리지 않도록 정답 시 넘어가는 시간이 조금 길어집니다. 음원이
+              없는 단어는 합성음으로 대체하지 않고 그냥 넘어갑니다.
             </small>
           </span>
         </label>

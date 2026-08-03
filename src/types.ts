@@ -45,7 +45,7 @@ export interface QuizSettings {
   retypeOnMiss: boolean;
   /** 틀린 단어를 세션 뒤쪽에 다시 출제할지. */
   requeueWrong: boolean;
-  /** 틀렸을 때 정답이 공개되는 순간 발음을 자동 재생할지. */
+  /** 채점되는 순간(정답이든 오답이든) 발음을 자동 재생할지. */
   autoPlayAudio: boolean;
 }
 
