@@ -31,3 +31,6 @@ venv/
 # 개인 단어장 백업 (실수로 커밋되지 않도록)
 /backup/
 *.voca.json
+
+# Claude Code 내부 상태
+.claude/

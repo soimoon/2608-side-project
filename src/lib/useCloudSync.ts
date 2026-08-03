@@ -5,7 +5,17 @@ import type { DB } from '../types';
 import { isCloudConfigured, supabase } from './supabase';
 import { mergeGuestWithCloud, pullAllWords, pullWords, pushWords } from './sync';
 
-export type SyncStatus = 'guest' | 'syncing' | 'synced' | 'offline' | 'error';
+export type SyncStatus = 'guest' | 'syncing' | 'confirming' | 'synced' | 'offline' | 'error';
+
+/** merge: 합친다 · cloudOnly: 기기 단어는 버리고 계정 단어만 쓴다 · cancel: 로그아웃하고 아무것도 안 바꾼다. */
+export type MergeChoice = 'merge' | 'cloudOnly' | 'cancel';
+
+export interface PendingMerge {
+  /** 이 기기에 있던(아직 이 계정과 동기화된 적 없는) 단어 수. */
+  localCount: number;
+  /** 로그인한 계정에 이미 클라우드에 저장돼 있던 단어 수. */
+  remoteCount: number;
+}
 
 export interface CloudSync {
   /** .env.local에 Supabase 설정이 있는지. 없으면 로그인 UI 자체를 숨겨야 한다. */
@@ -13,6 +23,13 @@ export interface CloudSync {
   session: Session | null;
   status: SyncStatus;
   message?: string;
+  /**
+   * 로그인 직후 이 기기에 아직 계정과 합쳐지지 않은 단어가 있으면 채워진다.
+   * confirmMerge를 부를 때까지 동기화가 멈춰 있는다 — 물어보지도 않고 기기의
+   * 임시 단어를 계정에 밀어넣지 않기 위해서다.
+   */
+  pendingMerge: PendingMerge | null;
+  confirmMerge: (choice: MergeChoice) => void;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -25,9 +42,25 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<SyncStatus>('guest');
   const [message, setMessage] = useState<string>();
+  const [pendingMerge, setPendingMerge] = useState<PendingMerge | null>(null);
   const syncing = useRef(false);
   const dbRef = useRef(db);
   dbRef.current = db;
+  /** askMergeChoice가 만든 Promise를 confirmMerge가 풀어주기 위한 통로. */
+  const mergeResolver = useRef<((choice: MergeChoice) => void) | null>(null);
+
+  function askMergeChoice(localCount: number, remoteCount: number): Promise<MergeChoice> {
+    return new Promise((resolve) => {
+      mergeResolver.current = resolve;
+      setPendingMerge({ localCount, remoteCount });
+    });
+  }
+
+  const confirmMerge = useCallback((choice: MergeChoice) => {
+    setPendingMerge(null);
+    mergeResolver.current?.(choice);
+    mergeResolver.current = null;
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
@@ -58,6 +91,47 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
         const remote = await pullAllWords(userId);
         if (!remote.ok) throw new Error(remote.error ?? '동기화 실패');
 
+        const localActive = current.words.filter((w) => !w.deletedAt);
+
+        // 이 기기에 물어볼 만한 단어가 없으면(빈 게스트 상태) 그냥 계정 데이터를 받는다.
+        if (localActive.length === 0) {
+          setDB((d) => ({
+            ...d,
+            words: remote.words,
+            sync: { lastPulledAt: tick, lastPushedAt: tick, userId },
+          }));
+          setStatus('synced');
+          return;
+        }
+
+        // 기기에 남아 있던 단어를 계정에 합칠지 사용자에게 직접 물어본다 — 로그인만
+        // 했는데 임시로 써보던 단어가 조용히 계정에 저장되는 걸 막기 위해서다.
+        setStatus('confirming');
+        const choice = await askMergeChoice(localActive.length, remote.words.length);
+
+        if (choice === 'cancel') {
+          await supabase.auth.signOut();
+          setStatus('guest');
+          setMessage(undefined);
+          return;
+        }
+
+        if (choice === 'cloudOnly') {
+          setDB((d) => ({
+            ...d,
+            words: remote.words,
+            sync: { lastPulledAt: tick, lastPushedAt: tick, userId },
+          }));
+          setMessage(
+            remote.words.length > 0
+              ? `계정 단어 ${remote.words.length}개를 불러왔습니다. 이 기기에 있던 단어는 사용하지 않았습니다.`
+              : '이 기기에 있던 단어는 사용하지 않았습니다.',
+          );
+          setStatus('synced');
+          return;
+        }
+
+        // choice === 'merge'
         const { words: mergedWords, summary } = mergeGuestWithCloud(current.words, remote.words);
         setDB((d) => ({ ...d, words: mergedWords }));
 
@@ -124,7 +198,10 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
     if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      // GitHub Pages는 /voca-quiz/ 하위 경로에서 서빙되므로 origin만 쓰면 경로가 빠진다.
+      // 이 값이 Supabase의 Redirect URLs 허용 목록에 없으면 로그인 후 기본 Site URL로
+      // 돌아가려다 실패한다(폰에서 "서버에 연결할 수 없음" 형태로 나타남).
+      options: { redirectTo: window.location.origin + import.meta.env.BASE_URL },
     });
   }, []);
 
@@ -135,5 +212,14 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
     setMessage(undefined);
   }, []);
 
-  return { configured: isCloudConfigured, session, status, message, signInWithGoogle, signOut };
+  return {
+    configured: isCloudConfigured,
+    session,
+    status,
+    message,
+    pendingMerge,
+    confirmMerge,
+    signInWithGoogle,
+    signOut,
+  };
 }
