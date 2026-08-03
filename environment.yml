@@ -1,0 +1,24 @@
+# voca-quiz 개발용 conda 환경
+#
+#   conda env create -f environment.yml
+#   conda activate voca-quiz
+#
+# 프런트엔드(React + TypeScript)는 Node로 돌아가므로 이 환경 없이도 개발할 수 있다.
+# 이 환경은 다음 용도로 쓴다.
+#   1) 단어장 원본(엑셀/PDF)을 정리해 CSV로 뽑는 전처리 스크립트  → scripts/
+#   2) 2단계에서 붙일 FastAPI 백엔드 (멀티플레이 방, 출석, 프로필)
+name: voca-quiz
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pandas
+  - openpyxl
+  - nodejs=20
+  - pip
+  - pip:
+      # 백엔드를 시작할 때 주석을 해제한다.
+      # - fastapi
+      # - uvicorn[standard]
+      # - sqlmodel
+      - ruff

@@ -1,0 +1,238 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Attempt, QuizSettings, Verdict, Word } from '../types';
+import { judge, normalize } from '../lib/judge';
+import { maskWord } from '../lib/mask';
+
+interface QItem {
+  word: Word;
+  /** 오답으로 인해 뒤에 다시 붙은 문제인지. 재출제 문제는 다시 재출제되지 않는다. */
+  requeued: boolean;
+}
+
+type Phase = 'answering' | 'retype' | 'feedback';
+
+const VERDICT_TEXT: Record<Verdict, string> = {
+  correct: '정답!',
+  near: '아깝다! 한 글자 차이',
+  wrong: '오답',
+  timeout: '시간 초과',
+};
+
+interface Props {
+  words: Word[];
+  settings: QuizSettings;
+  onFinish: (attempts: Attempt[], settings: QuizSettings, startedAt: number) => void;
+  onAbort: () => void;
+}
+
+export default function QuizScreen({ words, settings, onFinish, onAbort }: Props) {
+  const [queue, setQueue] = useState<QItem[]>(() => words.map((w) => ({ word: w, requeued: false })));
+  const [idx, setIdx] = useState(0);
+  const [phase, setPhase] = useState<Phase>('answering');
+  const [input, setInput] = useState('');
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [attempts, setAttempts] = useState<Attempt[]>([]);
+  const [remaining, setRemaining] = useState(settings.seconds);
+
+  const sessionStart = useRef(Date.now());
+  const questionStart = useRef(performance.now());
+  const inputRef = useRef<HTMLInputElement>(null);
+  /** 상태 반영 전에 확정된 다음 큐/기록. setState 비동기성 때문에 ref로 넘긴다. */
+  const pending = useRef<{ queue: QItem[]; attempts: Attempt[] } | null>(null);
+  /** 세션마다 공개 위치가 달라지도록 하는 마스킹 시드. */
+  const seed = useRef(Math.floor(Math.random() * 2 ** 31));
+
+  const item = queue[idx];
+  const answer = item?.word.en ?? '';
+
+  const revealed = useMemo(
+    () => maskWord(answer, settings.hintRatio, seed.current + idx),
+    [answer, settings.hintRatio, idx],
+  );
+
+  const advance = useCallback(() => {
+    const q = pending.current?.queue ?? queue;
+    const a = pending.current?.attempts ?? attempts;
+    pending.current = null;
+
+    if (idx + 1 >= q.length) {
+      onFinish(a, settings, sessionStart.current);
+      return;
+    }
+    setIdx(idx + 1);
+    setPhase('answering');
+    setInput('');
+    setVerdict(null);
+  }, [idx, queue, attempts, onFinish, settings]);
+
+  const submit = useCallback(
+    (v: Verdict, typed: string) => {
+      if (!item) return;
+
+      const attempt: Attempt = {
+        wordId: item.word.id,
+        en: item.word.en,
+        ko: item.word.ko,
+        input: typed,
+        verdict: v,
+        elapsedMs: Math.round(performance.now() - questionStart.current),
+        requeued: item.requeued,
+      };
+      const nextAttempts = [...attempts, attempt];
+      let nextQueue = queue;
+      if (v !== 'correct' && settings.requeueWrong && !item.requeued) {
+        nextQueue = [...queue, { word: item.word, requeued: true }];
+        setQueue(nextQueue);
+      }
+      setAttempts(nextAttempts);
+      pending.current = { queue: nextQueue, attempts: nextAttempts };
+      setVerdict(v);
+
+      if (v === 'correct') {
+        setPhase('feedback');
+        return;
+      }
+      setPhase(settings.retypeOnMiss ? 'retype' : 'feedback');
+      setInput('');
+    },
+    [item, attempts, queue, settings],
+  );
+
+  // 최신 클로저를 타이머 콜백에서 쓰기 위한 ref.
+  const timeoutHandler = useRef<() => void>(() => {});
+  timeoutHandler.current = () => submit('timeout', input);
+
+  // 제한 시간 카운트다운. 답을 제출하면 phase가 바뀌면서 정리된다.
+  useEffect(() => {
+    if (phase !== 'answering') return;
+    questionStart.current = performance.now();
+    setRemaining(settings.seconds);
+    const deadline = performance.now() + settings.seconds * 1000;
+
+    const tick = window.setInterval(() => {
+      setRemaining(Math.max(0, (deadline - performance.now()) / 1000));
+    }, 100);
+    const expire = window.setTimeout(() => timeoutHandler.current(), settings.seconds * 1000);
+
+    return () => {
+      window.clearInterval(tick);
+      window.clearTimeout(expire);
+    };
+  }, [idx, phase, settings.seconds]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [idx, phase]);
+
+  // 정답이면 잠깐 보여주고 자동으로 넘어간다.
+  useEffect(() => {
+    if (phase !== 'feedback' || verdict !== 'correct') return;
+    const t = window.setTimeout(advance, 550);
+    return () => window.clearTimeout(t);
+  }, [phase, verdict, advance]);
+
+  // 따라 치기: 정확히 입력하면 자동으로 다음 문제로.
+  useEffect(() => {
+    if (phase !== 'retype') return;
+    if (normalize(input) !== normalize(answer)) return;
+    const t = window.setTimeout(advance, 300);
+    return () => window.clearTimeout(t);
+  }, [phase, input, answer, advance]);
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (confirm('퀴즈를 중단할까요? 이번 세션 기록은 저장되지 않습니다.')) onAbort();
+      return;
+    }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (phase === 'answering') submit(judge(input, answer), input);
+    else if (phase === 'feedback' && verdict !== 'correct') advance();
+  }
+
+  if (!item) return null;
+
+  const total = queue.length;
+  const extra = total - words.length;
+  const ratio = Math.max(0, remaining / settings.seconds);
+  const urgent = remaining <= 3;
+  const retypeMatched = phase === 'retype' && normalize(input) === normalize(answer);
+
+  return (
+    <div className={`screen quiz ${verdict && phase !== 'answering' ? `v-${verdict}` : ''}`}>
+      <div className="quiz-top">
+        <button className="btn ghost sm" onClick={onAbort}>
+          중단
+        </button>
+        <span className="progress-text">
+          {idx + 1} / {total}
+          {extra > 0 && <span className="muted"> (+{extra} 복습)</span>}
+        </span>
+        <span className={`clock ${urgent && phase === 'answering' ? 'urgent' : ''}`}>
+          {phase === 'answering' ? remaining.toFixed(1) : (0).toFixed(1)}s
+        </span>
+      </div>
+
+      <div className="timer-track">
+        <div
+          className={`timer-fill ${urgent ? 'urgent' : ''}`}
+          style={{ transform: `scaleX(${phase === 'answering' ? ratio : 0})` }}
+        />
+      </div>
+
+      <div className="quiz-body">
+        <p className="meaning">{item.word.ko}</p>
+
+        <div className="mask" aria-label={`${answer.length}글자`}>
+          {[...answer].map((ch, i) =>
+            ch === ' ' ? (
+              <span key={i} className="slot space" />
+            ) : (
+              <span key={i} className={`slot ${revealed[i] ? 'shown' : ''}`}>
+                {phase === 'answering' ? (revealed[i] ? ch : '') : ch}
+              </span>
+            ),
+          )}
+        </div>
+        <p className="len-hint muted">{answer.replace(/\s/g, '').length}글자</p>
+
+        <input
+          ref={inputRef}
+          className={`answer-input ${verdict && phase !== 'answering' ? `v-${verdict}` : ''} ${
+            retypeMatched ? 'matched' : ''
+          }`}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          disabled={phase === 'feedback'}
+          placeholder={phase === 'retype' ? '정답을 그대로 입력하세요' : '전체 단어를 입력'}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+        />
+
+        <div className="feedback" role="status">
+          {verdict && phase !== 'answering' && (
+            <>
+              <span className={`verdict ${verdict}`}>{VERDICT_TEXT[verdict]}</span>
+              {verdict !== 'correct' && (
+                <span className="answer-reveal">
+                  정답: <b>{answer}</b>
+                  {input.trim() && <span className="muted"> · 입력: {input.trim()}</span>}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+
+        <p className="hint-line muted">
+          {phase === 'answering' && 'Enter로 제출 · Esc로 중단'}
+          {phase === 'retype' && '정답을 그대로 타이핑하면 다음 문제로 넘어갑니다'}
+          {phase === 'feedback' && verdict !== 'correct' && 'Enter로 다음 문제'}
+        </p>
+      </div>
+    </div>
+  );
+}
