@@ -29,6 +29,10 @@ jobs:
         env:
           # GitHub Pages는 /<repo>/ 하위 경로로 서빙된다.
           VITE_BASE: /${{ github.event.repository.name }}/
+          # 계정 기능을 아직 안 쓰면(Secrets 미설정) 둘 다 빈 값이 되고,
+          # 앱은 자동으로 게스트 모드로 빌드된다 — 별도 분기 없이 그냥 통과시킨다.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

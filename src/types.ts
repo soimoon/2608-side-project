@@ -18,6 +18,14 @@ export interface Word {
   /** 단어장 이름 (예: "토플 초록책 Day 1"). */
   deck: string;
   createdAt: number;
+  /** 마지막으로 이 행이 바뀐 시각. Supabase 동기화의 last-write-wins 병합 기준. */
+  updatedAt: number;
+  /**
+   * 소프트 삭제 시각. 실제로 행을 지우면 아직 동기화 안 된 다른 기기가
+   * 다음 push 때 되살릴 수 있어, 삭제도 "삭제됨" 상태로 기록만 한다.
+   * 로컬 UI(단어 목록·통계·출제 대상)에서는 이 값이 있으면 없는 것처럼 취급한다.
+   */
+  deletedAt?: number;
   stats: WordStats;
 }
 
@@ -64,9 +72,18 @@ export interface SessionResult {
   attempts: Attempt[];
 }
 
+/** 동기화 진행 커서. 로그인하지 않았거나 한 번도 동기화하지 않았으면 둘 다 0. */
+export interface SyncCursor {
+  /** 서버에서 이 시각 이후로 바뀐 행만 다시 받아오면 된다. */
+  lastPulledAt: number;
+  /** 로컬에서 이 시각 이후로 바뀐 행만 서버에 올리면 된다. */
+  lastPushedAt: number;
+}
+
 export interface DB {
-  version: 1;
+  version: 2;
   words: Word[];
   settings: QuizSettings;
   history: SessionResult[];
+  sync: SyncCursor;
 }

@@ -221,6 +221,41 @@ input[type='radio'] {
 }
 
 /* ---------- 홈 ---------- */
+.authbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+.authbar-hint {
+  font-size: 0.78rem;
+}
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--muted);
+  flex: none;
+}
+.sync-dot.syncing {
+  background: var(--near);
+  animation: pulse 1s ease-in-out infinite;
+}
+.sync-dot.synced {
+  background: var(--ok);
+}
+.sync-dot.offline,
+.sync-dot.error {
+  background: var(--err);
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .hero {
   text-align: center;
   padding: 28px 0 8px;
@@ -300,35 +335,6 @@ input[type='radio'] {
   overflow-x: auto;
 }
 
-.preview {
-  background: var(--surface-2);
-  border-radius: 10px;
-  padding: 12px;
-  font-size: 0.9rem;
-}
-.preview-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.preview-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.preview-list li {
-  display: flex;
-  gap: 12px;
-}
-.preview-list .en {
-  font-family: var(--mono);
-  color: var(--accent);
-  min-width: 160px;
-}
 .tag {
   font-size: 0.75rem;
   padding: 2px 8px;
@@ -341,19 +347,60 @@ input[type='radio'] {
 .tag.err {
   color: var(--err);
 }
-.skipped {
-  margin-top: 10px;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-.skipped ul {
-  margin: 6px 0 0;
-  padding-left: 18px;
-  font-family: var(--mono);
-}
 .notice {
   color: var(--ok);
   font-size: 0.9rem;
+}
+
+/* ---------- 붙여넣기 검수 표 ---------- */
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.review-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.review-row {
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.review-row.corrected {
+  border-color: var(--near);
+}
+.review-row.dup {
+  opacity: 0.55;
+}
+.review-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.review-row-main .cell {
+  flex: 1;
+  min-width: 0;
+}
+.review-tags {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.review-note {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
 }
 
 .search {

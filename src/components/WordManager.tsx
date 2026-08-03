@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import type { Word } from '../types';
-import { parseBulk } from '../lib/parse';
+import { guessSplit, parseBulk } from '../lib/parse';
 import { DEFAULT_DECK, download, exportCSV, exportWordsJSON, makeWord } from '../lib/storage';
 import { deckNames } from '../lib/select';
+import ImportReview, { type ReviewRow } from './ImportReview';
 
 const SAMPLE = `synthesize\t통합하다, 종합하다
 ubiquitous\t어디에나 있는
@@ -18,6 +19,7 @@ interface Props {
 export default function WordManager({ words, setWords, onBack }: Props) {
   const [bulk, setBulk] = useState('');
   const [deck, setDeck] = useState(DEFAULT_DECK);
+  const [reviewRows, setReviewRows] = useState<ReviewRow[] | null>(null);
   const [query, setQuery] = useState('');
   const [filterDeck, setFilterDeck] = useState('');
   const [notice, setNotice] = useState('');
@@ -26,12 +28,8 @@ export default function WordManager({ words, setWords, onBack }: Props) {
   const decks = useMemo(() => deckNames(words), [words]);
   const existing = useMemo(() => new Set(words.map((w) => w.en.toLowerCase())), [words]);
 
-  const preview = useMemo(() => parseBulk(bulk), [bulk]);
-  const newRows = useMemo(
-    () => preview.rows.filter((r) => !existing.has(r.en.toLowerCase())),
-    [preview, existing],
-  );
-  const dupCount = preview.rows.length - newRows.length;
+  // 검수 화면을 열기 전, 붙여넣은 텍스트에서 몇 줄이나 인식되는지 버튼에 미리 보여준다.
+  const quickCount = useMemo(() => parseBulk(bulk), [bulk]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -42,16 +40,58 @@ export default function WordManager({ words, setWords, onBack }: Props) {
       .reverse(); // 최근에 넣은 단어가 위로
   }, [words, query, filterDeck]);
 
-  function commitImport() {
-    if (newRows.length === 0) return;
+  /**
+   * 붙여넣은 텍스트를 검수 테이블로 옮긴다. 이 시점부터 텍스트박스와는 분리된
+   * 독립 상태가 되므로, 표에서 글자를 고쳐도 원본 붙여넣기 내용에는 영향이 없다.
+   */
+  function openReview() {
+    const parsed = parseBulk(bulk);
+    const rows: ReviewRow[] = [
+      ...parsed.rows.map((r, i) => ({
+        id: `p${i}`,
+        en: r.en,
+        ko: r.ko,
+        checked: !existing.has(r.en.toLowerCase()),
+        corrected: r.corrected,
+      })),
+      ...parsed.skipped.map((raw, i) => {
+        const guess = guessSplit(raw);
+        return {
+          id: `s${i}`,
+          en: guess.en,
+          ko: guess.ko,
+          checked: false,
+          raw,
+        };
+      }),
+    ];
+    setReviewRows(rows);
+    setNotice('');
+  }
+
+  function commitReview(selected: { en: string; ko: string }[]) {
+    if (selected.length === 0) return;
     const target = deck.trim() || DEFAULT_DECK;
-    const added = newRows.map((r) => makeWord(r.en, r.ko, target));
+
+    // 검수 표를 여는 사이 단어 관리 표에서 같은 단어가 등록됐을 수 있고,
+    // 검수 표 안에서 두 줄을 같은 철자로 고쳤을 수도 있다. 등록 직전에 한 번 더 막는다.
+    const seen = new Set(existing);
+    const added: Word[] = [];
+    let blocked = 0;
+    for (const r of selected) {
+      const key = r.en.toLowerCase();
+      if (seen.has(key)) {
+        blocked++;
+        continue;
+      }
+      seen.add(key);
+      added.push(makeWord(r.en, r.ko, target));
+    }
+
     setWords((prev) => [...prev, ...added]);
     setBulk('');
-    setNotice(
-      `${added.length}개 추가${dupCount ? ` · 중복 ${dupCount}개 건너뜀` : ''}` +
-        `${preview.skipped.length ? ` · 인식 실패 ${preview.skipped.length}줄` : ''}`,
-    );
+    setReviewRows(null);
+    setNotice(`${added.length}개 추가${blocked ? ` · 중복 ${blocked}개 건너뜀` : ''}`);
   }
 
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -64,17 +104,27 @@ export default function WordManager({ words, setWords, onBack }: Props) {
   }
 
   function update(id: string, patch: Partial<Word>) {
-    setWords((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+    setWords((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, ...patch, updatedAt: Date.now() } : w)),
+    );
   }
 
+  // 실제로 지우지 않고 deletedAt만 찍는다. 다른 기기가 아직 이 단어를 동기화하지
+  // 못한 상태에서 push하면, 진짜 삭제는 그 기기가 다음에 pull할 때 되살려 버린다.
   function remove(id: string) {
-    setWords((prev) => prev.filter((w) => w.id !== id));
+    const now = Date.now();
+    setWords((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, deletedAt: now, updatedAt: now } : w)),
+    );
   }
 
   function removeDeck(name: string) {
     const n = words.filter((w) => w.deck === name).length;
     if (!confirm(`단어장 "${name}"의 단어 ${n}개를 모두 삭제합니다. 계속할까요?`)) return;
-    setWords((prev) => prev.filter((w) => w.deck !== name));
+    const now = Date.now();
+    setWords((prev) =>
+      prev.map((w) => (w.deck === name ? { ...w, deletedAt: now, updatedAt: now } : w)),
+    );
     if (filterDeck === name) setFilterDeck('');
   }
 
@@ -111,7 +161,8 @@ export default function WordManager({ words, setWords, onBack }: Props) {
         <h3>단어 추가</h3>
         <p className="muted">
           엑셀에서 두 열(영단어 / 뜻)을 복사해 그대로 붙여넣으세요. 구분자가 없거나 한글이 앞에
-          와도 자동으로 분류합니다. <code>.csv</code> · <code>.txt</code> 파일도 됩니다.
+          와도, 폰 카메라로 찍은 종이 단어장을 OCR로 뽑은 텍스트라도 자동으로 분류합니다.{' '}
+          <code>.csv</code> · <code>.txt</code> 파일도 됩니다.
         </p>
 
         <div className="row">
@@ -129,9 +180,11 @@ export default function WordManager({ words, setWords, onBack }: Props) {
               ))}
             </datalist>
           </label>
-          <button className="btn ghost" onClick={() => fileRef.current?.click()}>
-            파일 불러오기
-          </button>
+          {!reviewRows && (
+            <button className="btn ghost" onClick={() => fileRef.current?.click()}>
+              파일 불러오기
+            </button>
+          )}
           <input
             ref={fileRef}
             type="file"
@@ -141,53 +194,37 @@ export default function WordManager({ words, setWords, onBack }: Props) {
           />
         </div>
 
-        <textarea
-          className="bulk"
-          rows={8}
-          value={bulk}
-          onChange={(e) => {
-            setBulk(e.target.value);
-            setNotice('');
-          }}
-          placeholder={SAMPLE}
-          spellCheck={false}
-        />
-
-        {bulk.trim() && (
-          <div className="preview">
-            <div className="preview-head">
-              <b>{newRows.length}개</b> 추가 예정
-              {dupCount > 0 && <span className="tag warn">중복 {dupCount}</span>}
-              {preview.skipped.length > 0 && (
-                <span className="tag err">인식 실패 {preview.skipped.length}</span>
-              )}
-            </div>
-            <ul className="preview-list">
-              {newRows.slice(0, 8).map((r, i) => (
-                <li key={i}>
-                  <span className="en">{r.en}</span>
-                  <span className="ko">{r.ko}</span>
-                </li>
-              ))}
-              {newRows.length > 8 && <li className="muted">… 외 {newRows.length - 8}개</li>}
-            </ul>
-            {preview.skipped.length > 0 && (
-              <details className="skipped">
-                <summary>인식하지 못한 줄 보기</summary>
-                <ul>
-                  {preview.skipped.slice(0, 20).map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
-          </div>
+        {reviewRows ? (
+          <ImportReview
+            rows={reviewRows}
+            existingLower={existing}
+            onChange={setReviewRows}
+            onCommit={commitReview}
+            onCancel={() => setReviewRows(null)}
+          />
+        ) : (
+          <>
+            <textarea
+              className="bulk"
+              rows={8}
+              value={bulk}
+              onChange={(e) => {
+                setBulk(e.target.value);
+                setNotice('');
+              }}
+              placeholder={SAMPLE}
+              spellCheck={false}
+            />
+            <button className="btn primary" disabled={!bulk.trim()} onClick={openReview}>
+              {bulk.trim()
+                ? `검토하기 (${quickCount.rows.length}줄 인식${
+                    quickCount.skipped.length ? ` · ${quickCount.skipped.length}줄 확인 필요` : ''
+                  })`
+                : '검토하기'}
+            </button>
+            {notice && <span className="notice">{notice}</span>}
+          </>
         )}
-
-        <button className="btn primary" disabled={newRows.length === 0} onClick={commitImport}>
-          {newRows.length}개 추가
-        </button>
-        {notice && <span className="notice">{notice}</span>}
       </section>
 
       <section className="card">

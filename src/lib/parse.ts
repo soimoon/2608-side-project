@@ -3,6 +3,7 @@
  *
  * 엑셀에서 셀을 복사하면 탭 구분 텍스트가 클립보드에 담기므로,
  * 별도 라이브러리 없이 엑셀 복붙이 그대로 동작한다. CSV 파일도 같은 함수로 처리한다.
+ * 폰 카메라 OCR(구글 렌즈 등)로 뽑은 텍스트도 normalizeOcrText()로 먼저 다듬는다.
  *
  * 지원하는 형태 (한 줄에 하나씩):
  *   synthesize	통합하다             ← 엑셀 복붙 (탭)
@@ -12,6 +13,13 @@
  *   통합하다  synthesize             ← 한글이 앞에 오는 경우
  *   12. synthesize  통합하다          ← 앞 번호는 제거
  *   "synthesize","통합하다"           ← 따옴표로 감싼 CSV
+ *
+ * OCR 텍스트는 추가로 이런 잡음을 겪는다 (normalizeOcrText가 처리):
+ *   synthesize                       ← 영단어와 뜻이 서로 다른 줄로 쪼개짐
+ *   통합하다                         ← (위 두 줄을 한 줄로 합친다)
+ *   Day 3                            ← 페이지 상단 표제 (제거)
+ *   42                                ← 페이지 번호만 있는 줄 (제거)
+ *   5ynthesize	통합하다             ← 숫자/기호가 알파벳으로 오인식 (보정)
  */
 
 const HANGUL = /[ㄱ-ㆎ가-힣]/;
@@ -29,6 +37,8 @@ const POS_SUFFIX = /[\s([]*\b(?:n|v|a|adj|adv|prep|conj|pron|int)\b\.?[\s)\]]*$/
 export interface ParsedRow {
   en: string;
   ko: string;
+  /** OCR 오인식을 자동 보정한 내역. 있으면 검수 UI가 눈에 띄게 표시해야 한다. */
+  corrected?: string[];
 }
 
 export interface ParseResult {
@@ -49,6 +59,49 @@ function cleanKo(raw: string): string {
   return raw.replace(EDGE_JUNK, '').replace(/\s+/g, ' ').trim();
 }
 
+/** OCR이 자주 혼동하는 문자 → 알파벳 자리에서만 바꾼다 (숫자만 있는 토큰은 건드리지 않음). */
+const CONFUSABLE_EN: Record<string, string> = { '0': 'o', '1': 'l', '5': 's', '|': 'l' };
+
+function fixConfusablesEn(word: string): { text: string; changed: boolean } {
+  if (!LATIN.test(word)) return { text: word, changed: false };
+  let changed = false;
+  const text = [...word]
+    .map((ch) => {
+      const rep = CONFUSABLE_EN[ch];
+      if (rep === undefined) return ch;
+      changed = true;
+      return rep;
+    })
+    .join('');
+  return { text, changed };
+}
+
+/** 낱자모(ㅇ, ㅁ 등) 단독 등장은 글자가 아니라 OCR 잡음이므로 제거한다. */
+const LONE_JAMO = /[ㄱ-ㅎㅏ-ㅣ]/g;
+
+function stripLoneJamo(text: string): { text: string; changed: boolean } {
+  if (!LONE_JAMO.test(text)) return { text, changed: false };
+  return { text: text.replace(LONE_JAMO, '').replace(/\s+/g, ' ').trim(), changed: true };
+}
+
+/** en/ko 원문을 정리하고, 자동 보정이 있었으면 사람이 읽을 수 있는 메모로 남긴다. */
+function buildRow(enRaw: string, koRaw: string): ParsedRow | null {
+  const en0 = cleanEn(enRaw);
+  const ko0 = cleanKo(koRaw);
+  if (!en0 || !ko0) return null;
+
+  const enFix = fixConfusablesEn(en0);
+  const koFix = stripLoneJamo(ko0);
+
+  const corrected: string[] = [];
+  if (enFix.changed) corrected.push(`영단어 자동 보정: "${en0}" → "${enFix.text}"`);
+  if (koFix.changed) corrected.push(`뜻 자동 보정: "${ko0}" → "${koFix.text}"`);
+
+  return corrected.length
+    ? { en: enFix.text, ko: koFix.text, corrected }
+    : { en: enFix.text, ko: koFix.text };
+}
+
 /** 한글 문자를 기준으로 영어 구간과 한글 구간의 경계를 찾아 자른다. */
 function splitByHangulBoundary(line: string): ParsedRow | null {
   let first = -1;
@@ -63,14 +116,10 @@ function splitByHangulBoundary(line: string): ParsedRow | null {
 
   // 영어가 앞: "synthesize 통합하다"
   const head = line.slice(0, first);
-  if (LATIN.test(head)) {
-    return { en: cleanEn(head), ko: cleanKo(line.slice(first)) };
-  }
+  if (LATIN.test(head)) return buildRow(head, line.slice(first));
   // 한글이 앞: "통합하다 synthesize"
   const tail = line.slice(last + 1);
-  if (LATIN.test(tail)) {
-    return { en: cleanEn(tail), ko: cleanKo(line.slice(0, last + 1)) };
-  }
+  if (LATIN.test(tail)) return buildRow(tail, line.slice(0, last + 1));
   return null;
 }
 
@@ -78,8 +127,8 @@ function splitByHangulBoundary(line: string): ParsedRow | null {
 function assignSides(a: string, b: string): ParsedRow | null {
   const aKo = HANGUL.test(a);
   const bKo = HANGUL.test(b);
-  if (!aKo && bKo) return { en: cleanEn(a), ko: cleanKo(b) };
-  if (aKo && !bKo) return { en: cleanEn(b), ko: cleanKo(a) };
+  if (!aKo && bKo) return buildRow(a, b);
+  if (aKo && !bKo) return buildRow(b, a);
   return null;
 }
 
@@ -87,14 +136,17 @@ function parseLine(rawLine: string): ParsedRow | null {
   const line = rawLine.replace(LEADING_NUMBER, '').trim();
   if (!line) return null;
 
-  // 1) 탭이 있으면 가장 신뢰할 수 있는 구분자다 (엑셀 복붙).
+  // 1) 탭이 있으면 가장 신뢰할 수 있는 구분자다 (엑셀 복붙 · OCR 줄 병합 결과).
   if (line.includes('\t')) {
     const parts = line.split('\t').map((p) => p.trim()).filter(Boolean);
     if (parts.length >= 2) {
       // 3열 이상이면 한글이 없는 첫 칸을 영어로, 나머지 한글 칸을 뜻으로 합친다.
       const en = parts.find((p) => LATIN.test(p) && !HANGUL.test(p));
       const ko = parts.filter((p) => HANGUL.test(p)).join(', ');
-      if (en && ko) return { en: cleanEn(en), ko: cleanKo(ko) };
+      if (en && ko) {
+        const row = buildRow(en, ko);
+        if (row) return row;
+      }
       const pair = assignSides(parts[0], parts.slice(1).join(' '));
       if (pair) return pair;
     }
@@ -102,7 +154,7 @@ function parseLine(rawLine: string): ParsedRow | null {
 
   // 2) 한글 경계로 자른다. 뜻에 쉼표가 들어간 경우("통합하다, 종합하다")도 안전하다.
   const boundary = splitByHangulBoundary(line);
-  if (boundary && boundary.en && boundary.ko) return boundary;
+  if (boundary) return boundary;
 
   // 3) 마지막 수단: 명시적 구분자 한 번만 쪼갠다.
   const m = line.match(/^(.*?)\s*[,:;|]|^(.*?)\s+[-–—]\s+/);
@@ -110,10 +162,84 @@ function parseLine(rawLine: string): ParsedRow | null {
     const left = (m[1] ?? m[2] ?? '').trim();
     const right = line.slice(m[0].length).trim();
     const pair = assignSides(left, right);
-    if (pair && pair.en && pair.ko) return pair;
+    if (pair) return pair;
   }
 
   return null;
+}
+
+// ---------- OCR 텍스트 전처리 ----------
+
+/** 전각 영숫자·기호(예: "Ａ" "１" "．")를 반각으로. */
+const FULLWIDTH_ASCII = /[！-～]/g;
+const FULLWIDTH_SPACE = /　/g;
+
+/** 스마트 따옴표를 일반 따옴표로. */
+const SMART_QUOTES: [RegExp, string][] = [
+  [/[‘’′]/g, "'"],
+  [/[“”″]/g, '"'],
+];
+
+function toHalfwidth(text: string): string {
+  return text
+    .replace(FULLWIDTH_ASCII, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(FULLWIDTH_SPACE, ' ');
+}
+
+function straightenQuotes(text: string): string {
+  return SMART_QUOTES.reduce((s, [re, rep]) => s.replace(re, rep), text);
+}
+
+/** "Day 3", "Chapter 12", 페이지 번호만 있는 줄처럼 단어 쌍이 아닌 표제·잡음 줄. */
+const HEADER_LINE = /^(?:day|chapter|unit|lesson|page)\.?\s*\d+\s*[.:]?$/i;
+const NUMERIC_ONLY_LINE = /^\d+\s*[.):]?$/;
+
+function isJunkLine(line: string): boolean {
+  return HEADER_LINE.test(line) || NUMERIC_ONLY_LINE.test(line);
+}
+
+const isLatinOnlyLine = (s: string) => LATIN.test(s) && !HANGUL.test(s);
+const isHangulOnlyLine = (s: string) => HANGUL.test(s) && !LATIN.test(s);
+
+/**
+ * OCR 특유의 잡음을 걷어내 parseBulk가 다루기 좋은 형태로 만든다.
+ *  - 전각 문자 → 반각, 스마트 따옴표 → 일반 따옴표
+ *  - "Day 3" 같은 표제 줄, 페이지 번호만 있는 줄 제거
+ *  - 영단어만 있는 줄 바로 다음에 한글만 있는 줄이 오면 한 줄로 합친다
+ *    (카메라 OCR이 영단어 열과 뜻 열을 위아래로 잘못 인식하는 가장 흔한 경우)
+ */
+export function normalizeOcrText(raw: string): string {
+  const cleaned = straightenQuotes(toHalfwidth(raw));
+
+  const lines = cleaned
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !isJunkLine(l));
+
+  const merged: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const cur = lines[i];
+    const next = lines[i + 1];
+    if (next && !cur.includes('\t') && isLatinOnlyLine(cur) && isHangulOnlyLine(next)) {
+      merged.push(`${cur}\t${next}`);
+      i++; // next는 이미 합쳤으니 건너뛴다
+      continue;
+    }
+    merged.push(cur);
+  }
+  return merged.join('\n');
+}
+
+/**
+ * parseBulk가 실패로 분류한 줄에 대해 검수용 초안을 만든다.
+ * parseLine보다 훨씬 느슨하다 — 공백으로 나눈 토큰을 한글 포함 여부로만 갈라 붙인다.
+ * 결과를 그대로 등록하면 안 되고, 검수 화면에서 사람이 확인한 뒤 써야 한다.
+ */
+export function guessSplit(raw: string): ParsedRow {
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  const en = tokens.filter((t) => LATIN.test(t) && !HANGUL.test(t)).join(' ');
+  const ko = tokens.filter((t) => HANGUL.test(t)).join(' ');
+  return { en: cleanEn(en), ko: cleanKo(ko) };
 }
 
 export function parseBulk(text: string): ParseResult {
@@ -121,10 +247,10 @@ export function parseBulk(text: string): ParseResult {
   const skipped: string[] = [];
   const seen = new Set<string>();
 
-  for (const rawLine of text.split(/\r?\n/)) {
+  for (const rawLine of normalizeOcrText(text).split(/\r?\n/)) {
     if (!rawLine.trim()) continue;
     const row = parseLine(rawLine);
-    if (!row || !row.en || !row.ko) {
+    if (!row) {
       skipped.push(rawLine.trim());
       continue;
     }

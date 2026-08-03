@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
-import type { DB } from '../types';
+import type { DB, Word } from '../types';
 import { deckNames } from '../lib/select';
+import type { CloudSync } from '../lib/useCloudSync';
+import AuthBar from './AuthBar';
 
 function todayKey(): string {
   return new Date().toLocaleDateString('sv-SE');
@@ -23,19 +25,22 @@ function studyStreak(dates: string[]): number {
 
 interface Props {
   db: DB;
+  /** 소프트 삭제된 단어를 뺀 목록. 통계·단어장 집계는 전부 여기 기준. */
+  words: Word[];
+  sync: CloudSync;
   onManageWords: () => void;
   onStart: () => void;
 }
 
-export default function Home({ db, onManageWords, onStart }: Props) {
+export default function Home({ db, words, sync, onManageWords, onStart }: Props) {
   const stats = useMemo(() => {
-    const decks = deckNames(db.words);
+    const decks = deckNames(words);
     const dates = db.history.map((h) => h.date);
     const today = db.history.filter((h) => h.date === todayKey());
     const todayCount = today.reduce((s, h) => s + h.attempts.filter((a) => !a.requeued).length, 0);
 
-    const learned = db.words.filter((w) => w.stats.streak >= 3).length;
-    const seen = db.words.filter((w) => w.stats.seen > 0);
+    const learned = words.filter((w) => w.stats.streak >= 3).length;
+    const seen = words.filter((w) => w.stats.seen > 0);
     const accuracy = seen.length
       ? Math.round(
           (seen.reduce((s, w) => s + w.stats.correct / w.stats.seen, 0) / seen.length) * 100,
@@ -43,12 +48,13 @@ export default function Home({ db, onManageWords, onStart }: Props) {
       : 0;
 
     return { decks, streak: studyStreak(dates), todayCount, learned, accuracy };
-  }, [db]);
+  }, [db, words]);
 
-  const empty = db.words.length === 0;
+  const empty = words.length === 0;
 
   return (
     <div className="screen home">
+      <AuthBar sync={sync} />
       <header className="hero">
         <h1>
           Voca <span className="accent">Quiz</span>
@@ -58,7 +64,7 @@ export default function Home({ db, onManageWords, onStart }: Props) {
 
       <div className="stat-grid">
         <div className="stat">
-          <span className="stat-value">{db.words.length}</span>
+          <span className="stat-value">{words.length}</span>
           <span className="stat-label">등록 단어</span>
         </div>
         <div className="stat">

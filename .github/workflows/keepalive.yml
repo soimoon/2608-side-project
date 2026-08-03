@@ -1,0 +1,22 @@
+name: Keep Supabase project awake
+
+# Supabase 무료 프로젝트는 7일간 API 요청이 없으면 자동 일시정지된다.
+# 시험 기간에 앱을 며칠 안 쓰면 계정 동기화가 걸릴 수 있어, 주 1회 가볍게 핑을 보낸다.
+# (오프라인 우선 설계라 일시정지 중에도 앱 자체는 계속 동작 — 이건 그냥 예방 차원.)
+on:
+  schedule:
+    - cron: '0 3 * * 1' # 매주 월요일 03:00 UTC(한국 시간 정오)
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase Auth health endpoint
+        run: |
+          if [ -z "${{ secrets.VITE_SUPABASE_URL }}" ]; then
+            echo "Supabase 설정이 없는 저장소입니다 (아직 게스트 모드만 씀). 건너뜁니다."
+            exit 0
+          fi
+          curl -sf "${{ secrets.VITE_SUPABASE_URL }}/auth/v1/health" \
+            -H "apikey: ${{ secrets.VITE_SUPABASE_ANON_KEY }}"
