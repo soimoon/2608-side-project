@@ -81,3 +81,8 @@ export function pickWords(
 export function deckNames(words: Word[]): string[] {
   return [...new Set(words.map((w) => w.deck))].sort((a, b) => a.localeCompare(b, 'ko'));
 }
+
+/** 단어에서 드러나는 단어장 + 아직 단어가 없어 존재만 하는 단어장(DB.decks)을 합친다. */
+export function allDeckNames(words: Word[], extra: string[]): string[] {
+  return [...new Set([...deckNames(words), ...extra])].sort((a, b) => a.localeCompare(b, 'ko'));
+}

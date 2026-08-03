@@ -3,6 +3,7 @@ import type { Attempt, DB, QuizSettings, SessionResult, Word } from './types';
 import { activeWords, loadDB, newId, saveDB } from './lib/storage';
 import { useCloudSync } from './lib/useCloudSync';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
+import { allDeckNames } from './lib/select';
 import Home from './components/Home';
 import WordManager from './components/WordManager';
 import StudyList from './components/StudyList';
@@ -33,6 +34,9 @@ export default function App() {
   // 소프트 삭제된 단어는 어느 화면에도 보이면 안 된다. 여기서 한 번만 걸러 아래로 흘려보낸다.
   const words = useMemo(() => activeWords(db.words), [db.words]);
 
+  // 단어에서 드러나는 단어장 + 아직 단어가 없어 존재만 하는 단어장(미리 만들어 둔 것)을 합친다.
+  const decks = useMemo(() => allDeckNames(words, db.decks), [words, db.decks]);
+
   // 로그인 안 해도(.env.local 미설정 포함) 완전히 잠들어 있는 훅. 게스트 모드에 영향 없음.
   const sync = useCloudSync(db, setDB);
 
@@ -42,6 +46,16 @@ export default function App() {
 
   const setSettings = useCallback((settings: QuizSettings) => {
     setDB((d) => ({ ...d, settings }));
+  }, []);
+
+  /** 단어 없이 미리 만들어 두는 빈 단어장. */
+  const createDeck = useCallback((name: string) => {
+    setDB((d) => (d.decks.includes(name) ? d : { ...d, decks: [...d.decks, name] }));
+  }, []);
+
+  /** "이 단어장 삭제"에서 함께 부른다 — 단어를 옮겨서 비워진 뒤에도 목록에 남지 않도록. */
+  const removeDeckName = useCallback((name: string) => {
+    setDB((d) => ({ ...d, decks: d.decks.filter((x) => x !== name) }));
   }, []);
 
   /**
@@ -134,12 +148,22 @@ export default function App() {
           />
         );
       case 'study':
-        return <StudyList words={words} pronunciations={db.pronunciations} onBack={home} />;
+        return (
+          <StudyList
+            words={words}
+            decks={decks}
+            pronunciations={db.pronunciations}
+            onBack={home}
+          />
+        );
       case 'words':
         return (
           <WordManager
             words={words}
             setWords={setWords}
+            decks={decks}
+            onCreateDeck={createDeck}
+            onRemoveDeckName={removeDeckName}
             pronunciations={db.pronunciations}
             onFetchPronunciations={cachePronunciations}
             onBack={home}
@@ -149,6 +173,7 @@ export default function App() {
         return (
           <SetupScreen
             words={words}
+            decks={decks}
             settings={db.settings}
             onSettingsChange={setSettings}
             onStart={startQuiz}
@@ -180,8 +205,11 @@ export default function App() {
     screen,
     db,
     words,
+    decks,
     sync,
     setWords,
+    createDeck,
+    removeDeckName,
     setSettings,
     startQuiz,
     finishQuiz,

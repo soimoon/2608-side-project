@@ -1,18 +1,18 @@
 import { useMemo, useState } from 'react';
 import type { Pronunciation, Word } from '../types';
-import { deckNames } from '../lib/select';
 import { lookupCache } from '../lib/pronounce';
 import PronounceButton from './PronounceButton';
 
 interface Props {
   words: Word[];
+  /** 단어에서 드러나는 단어장 + 미리 만들어 둔 빈 단어장을 합친 전체 목록. */
+  decks: string[];
   pronunciations: Record<string, Pronunciation>;
   onBack: () => void;
 }
 
 /** 퀴즈나 편집이 아니라, 그냥 훑어보며 외우기 위한 화면. */
-export default function StudyList({ words, pronunciations, onBack }: Props) {
-  const decks = useMemo(() => deckNames(words), [words]);
+export default function StudyList({ words, decks, pronunciations, onBack }: Props) {
   const [deck, setDeck] = useState('');
 
   const list = useMemo(() => {

@@ -2,7 +2,6 @@ import { useMemo, useRef, useState } from 'react';
 import type { Pronunciation, Word } from '../types';
 import { guessSplit, parseBulk } from '../lib/parse';
 import { DEFAULT_DECK, download, exportCSV, exportWordsJSON, makeWord } from '../lib/storage';
-import { deckNames } from '../lib/select';
 import { lookupCache, missingFromCache } from '../lib/pronounce';
 import ImportReview, { type ReviewRow } from './ImportReview';
 import PronounceButton from './PronounceButton';
@@ -15,6 +14,12 @@ ubiquitous\t어디에나 있는
 interface Props {
   words: Word[];
   setWords: (updater: (prev: Word[]) => Word[]) => void;
+  /** 단어에서 드러나는 단어장 + 미리 만들어 둔 빈 단어장을 합친 전체 목록. */
+  decks: string[];
+  /** 단어 없이 빈 단어장만 미리 만들어 둔다. */
+  onCreateDeck: (name: string) => void;
+  /** "이 단어장 삭제" 시 목록에서도 완전히 지운다. */
+  onRemoveDeckName: (name: string) => void;
   pronunciations: Record<string, Pronunciation>;
   /** 아직 캐시에 없는 단어의 발음을 받아온다. 로그인·설정이 없으면 아무 일도 하지 않는다. */
   onFetchPronunciations: (targets: Word[]) => Promise<void>;
@@ -24,6 +29,9 @@ interface Props {
 export default function WordManager({
   words,
   setWords,
+  decks,
+  onCreateDeck,
+  onRemoveDeckName,
   pronunciations,
   onFetchPronunciations,
   onBack,
@@ -38,9 +46,12 @@ export default function WordManager({
   const [manualEn, setManualEn] = useState('');
   // "+ 뜻 추가" 버튼을 누를 때마다 빈 칸이 하나씩 늘어난다.
   const [manualKo, setManualKo] = useState<string[]>(['']);
+  const [newDeckName, setNewDeckName] = useState('');
+  // 체크된 단어 id들. 여러 개를 한 번에 다른 단어장으로 옮기는 데 쓴다.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkTarget, setBulkTarget] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const decks = useMemo(() => deckNames(words), [words]);
   const existing = useMemo(() => new Set(words.map((w) => w.en.toLowerCase())), [words]);
 
   // 검수 화면을 열기 전, 붙여넣은 텍스트에서 몇 줄이나 인식되는지 버튼에 미리 보여준다.
@@ -56,6 +67,8 @@ export default function WordManager({
       .slice()
       .reverse(); // 최근에 넣은 단어가 위로
   }, [words, query, filterDeck]);
+
+  const allVisibleSelected = visible.length > 0 && visible.every((w) => selected.has(w.id));
 
   // 지금 보이는 목록 중 아직 발음을 안 받아온 단어 수.
   const pronMissing = useMemo(
@@ -102,8 +115,8 @@ export default function WordManager({
     setNotice('');
   }
 
-  function commitReview(selected: { en: string; ko: string }[]) {
-    if (selected.length === 0) return;
+  function commitReview(selectedRows: { en: string; ko: string }[]) {
+    if (selectedRows.length === 0) return;
     const target = deck.trim() || DEFAULT_DECK;
 
     // 검수 표를 여는 사이 단어 관리 표에서 같은 단어가 등록됐을 수 있고,
@@ -111,7 +124,7 @@ export default function WordManager({
     const seen = new Set(existing);
     const added: Word[] = [];
     let blocked = 0;
-    for (const r of selected) {
+    for (const r of selectedRows) {
       const key = r.en.toLowerCase();
       if (seen.has(key)) {
         blocked++;
@@ -153,12 +166,61 @@ export default function WordManager({
 
   function removeDeck(name: string) {
     const n = words.filter((w) => w.deck === name).length;
-    if (!confirm(`단어장 "${name}"의 단어 ${n}개를 모두 삭제합니다. 계속할까요?`)) return;
-    const now = Date.now();
-    setWords((prev) =>
-      prev.map((w) => (w.deck === name ? { ...w, deletedAt: now, updatedAt: now } : w)),
-    );
+    if (n > 0 && !confirm(`단어장 "${name}"의 단어 ${n}개를 모두 삭제합니다. 계속할까요?`)) return;
+    if (n > 0) {
+      const now = Date.now();
+      setWords((prev) =>
+        prev.map((w) => (w.deck === name ? { ...w, deletedAt: now, updatedAt: now } : w)),
+      );
+    }
+    onRemoveDeckName(name);
     if (filterDeck === name) setFilterDeck('');
+  }
+
+  function createDeck() {
+    const name = newDeckName.trim();
+    if (!name) return;
+    if (decks.includes(name)) {
+      setNotice(`이미 있는 단어장입니다: ${name}`);
+      return;
+    }
+    onCreateDeck(name);
+    setNewDeckName('');
+    setNotice(`단어장 "${name}" 생성됨 (아직 빈 단어장)`);
+  }
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const w of visible) next.delete(w.id);
+      } else {
+        for (const w of visible) next.add(w.id);
+      }
+      return next;
+    });
+  }
+
+  function bulkMove() {
+    if (selected.size === 0 || !bulkTarget) return;
+    const count = selected.size;
+    setWords((prev) =>
+      prev.map((w) =>
+        selected.has(w.id) ? { ...w, deck: bulkTarget, updatedAt: Date.now() } : w,
+      ),
+    );
+    setNotice(`${count}개를 "${bulkTarget}"(으)로 옮겼습니다`);
+    setSelected(new Set());
+    setBulkTarget('');
   }
 
   function updateManualMeaning(i: number, value: string) {
@@ -340,9 +402,24 @@ export default function WordManager({
       </section>
 
       <section className="card">
+        <h3>단어장 생성</h3>
+        <p className="muted">단어를 등록하지 않고 빈 단어장만 미리 만들어 둘 수 있다.</p>
+        <div className="row">
+          <input
+            value={newDeckName}
+            onChange={(e) => setNewDeckName(e.target.value)}
+            placeholder="예: 토플 초록책 Day 3"
+          />
+          <button className="btn ghost" disabled={!newDeckName.trim()} onClick={createDeck}>
+            단어장 생성
+          </button>
+        </div>
+      </section>
+
+      <section className="card">
         <div className="row between">
           <h3>등록된 단어 {words.length}개</h3>
-          <div className="row">
+          <div className="row wrap">
             <input
               className="search"
               value={query}
@@ -376,6 +453,14 @@ export default function WordManager({
           <table className="word-table">
             <thead>
               <tr>
+                <th className="checkbox-col">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    aria-label="보이는 단어 전체 선택"
+                  />
+                </th>
                 <th>영단어</th>
                 <th>발음</th>
                 <th>뜻</th>
@@ -386,7 +471,15 @@ export default function WordManager({
             </thead>
             <tbody>
               {visible.map((w) => (
-                <tr key={w.id}>
+                <tr key={w.id} className={selected.has(w.id) ? 'row-selected' : ''}>
+                  <td className="checkbox-col">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(w.id)}
+                      onChange={() => toggleSelected(w.id)}
+                      aria-label={`${w.en} 선택`}
+                    />
+                  </td>
                   <td>
                     <input
                       value={w.en}
@@ -412,7 +505,15 @@ export default function WordManager({
                       title="뜻이 여러 개면 / 로 구분 (예: 이용하다 / 위업, 공적)"
                     />
                   </td>
-                  <td className="nowrap muted">{w.deck}</td>
+                  <td className="nowrap">
+                    <select value={w.deck} onChange={(e) => update(w.id, { deck: e.target.value })}>
+                      {decks.map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
                   <td className="nowrap muted">
                     {w.stats.seen === 0
                       ? '—'
@@ -429,6 +530,28 @@ export default function WordManager({
           </table>
         )}
       </section>
+
+      {selected.size > 0 && (
+        <div className="bulk-move-bar">
+          <span>
+            <b>{selected.size}개</b> 선택됨
+          </span>
+          <select value={bulkTarget} onChange={(e) => setBulkTarget(e.target.value)}>
+            <option value="">단어장 선택</option>
+            {decks.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          <button className="btn primary sm" disabled={!bulkTarget} onClick={bulkMove}>
+            이동
+          </button>
+          <button className="btn ghost sm" onClick={() => setSelected(new Set())}>
+            선택 해제
+          </button>
+        </div>
+      )}
     </div>
   );
 }

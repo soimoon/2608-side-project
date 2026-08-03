@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { QuizSettings, Strategy, Word } from '../types';
-import { deckNames, pickWords } from '../lib/select';
+import { pickWords } from '../lib/select';
 import { maskPreview } from '../lib/mask';
 
 const PRESETS: { label: string; ratio: number; hint: string }[] = [
@@ -20,15 +20,23 @@ const SAMPLE_WORDS = ['synthesize', 'ubiquitous', 'mitigate'];
 
 interface Props {
   words: Word[];
+  /** 단어에서 드러나는 단어장 + 미리 만들어 둔 빈 단어장을 합친 전체 목록. */
+  decks: string[];
   settings: QuizSettings;
   onSettingsChange: (s: QuizSettings) => void;
   onStart: (words: Word[], settings: QuizSettings) => void;
   onBack: () => void;
 }
 
-export default function SetupScreen({ words, settings, onSettingsChange, onStart, onBack }: Props) {
+export default function SetupScreen({
+  words,
+  decks,
+  settings,
+  onSettingsChange,
+  onStart,
+  onBack,
+}: Props) {
   const [s, setS] = useState<QuizSettings>(settings);
-  const decks = useMemo(() => deckNames(words), [words]);
 
   const patch = (p: Partial<QuizSettings>) => setS((prev) => ({ ...prev, ...p }));
 

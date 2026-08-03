@@ -116,11 +116,18 @@ export interface SyncCursor {
 }
 
 export interface DB {
-  version: 3;
+  version: 4;
   words: Word[];
   settings: QuizSettings;
   history: SessionResult[];
   sync: SyncCursor;
   /** 발음 캐시 (소문자 철자 → 발음). 서버 캐시의 로컬 사본이라 언제 지워도 안전하다. */
   pronunciations: Record<string, Pronunciation>;
+  /**
+   * 단어가 하나도 없어도 미리 만들어 둘 수 있는 단어장 이름 목록. 보통 단어장은
+   * words[].deck 값으로부터 자연스럽게 드러나지만, 빈 단어장은 그 방식으로는
+   * 존재할 수 없어 따로 저장한다. 이 목록은 아직 계정에 동기화되지 않고 기기
+   * 로컬에만 있다 — 단어가 하나라도 들어가는 순간부터는 그 단어를 통해 동기화된다.
+   */
+  decks: string[];
 }
