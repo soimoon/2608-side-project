@@ -79,6 +79,66 @@ describe('normalizeOcrText (OCR 잡음 대응)', () => {
       { en: 'ubiquitous', ko: '어디에나 있는' },
     ]);
   });
+
+  it('뜻 줄에 영어 유의어가 섞여 있어도(Quizlet 복붙) 합친다', () => {
+    // 다음 줄이 "한글만"이 아니라 "유의어, ..., 한글 뜻"처럼 섞여 있는 경우.
+    const out = normalizeOcrText('exploit\nutilize, use, make use of, take advantage of, 이용하다');
+    expect(out).toBe('exploit\tutilize, use, make use of, take advantage of, 이용하다');
+  });
+});
+
+describe('parseBulk (Quizlet 학습 화면 복붙)', () => {
+  // Quizlet 공식 "내보내기"의 깔끔한 탭 구분과 달리, 학습 화면을 그대로 긁으면
+  // "단어" 줄 다음에 "영어 유의어, 한글 뜻"이 한 줄로 섞여 나온다.
+  const raw = [
+    'exploit',
+    'utilize, use, make use of, take advantage of, 이용하다',
+    'account for',
+    'explain, 설명하다',
+    'make up',
+    'comprise, 차지하다',
+    'cause',
+    '원인이 되다',
+  ].join('\n');
+
+  it('단어 줄과 유의어+한글 뜻 줄을 합쳐서 등록하고, 유의어를 뜻에 그대로 남긴다', () => {
+    const { rows } = parseBulk(raw);
+    expect(rows).toEqual([
+      { en: 'exploit', ko: 'utilize, use, make use of, take advantage of, 이용하다' },
+      { en: 'account for', ko: 'explain, 설명하다' },
+      { en: 'make up', ko: 'comprise, 차지하다' },
+      { en: 'cause', ko: '원인이 되다' },
+    ]);
+  });
+
+  it('단어+유의어+한글 뜻이 한 줄에 다 있어도(쉼표 구분) 처리한다', () => {
+    const { rows } = parseBulk('accomplishment, feat, 위업, 공적');
+    expect(rows[0]).toEqual({ en: 'accomplishment', ko: 'feat, 위업, 공적' });
+  });
+
+  it('실제로 복붙했을 때처럼 두 줄짜리 항목과 한 줄짜리 항목이 섞여 있어도 전부 처리한다', () => {
+    // 사용자가 Quizlet에서 그대로 긁어 붙여넣은 원문. 같은 페이지 안에서도 항목마다
+    // 줄바꿈 여부가 들쭉날쭉했다 — 두 패턴 모두 지원해야 실제로 쓸 수 있다.
+    const raw = [
+      'exploit',
+      'utilize, use, make use of, take advantage of, 이용하다',
+      'accomplishment, feat, 위업, 공적',
+      'account for',
+      'explain, 설명하다',
+      'make up, comprise, 차지하다',
+      'cause, 원인이 되다',
+    ].join('\n');
+
+    const { rows, skipped } = parseBulk(raw);
+    expect(skipped).toEqual([]);
+    expect(rows).toEqual([
+      { en: 'exploit', ko: 'utilize, use, make use of, take advantage of, 이용하다' },
+      { en: 'accomplishment', ko: 'feat, 위업, 공적' },
+      { en: 'account for', ko: 'explain, 설명하다' },
+      { en: 'make up', ko: 'comprise, 차지하다' },
+      { en: 'cause', ko: '원인이 되다' },
+    ]);
+  });
 });
 
 describe('parseBulk (OCR 오인식 자동 보정)', () => {

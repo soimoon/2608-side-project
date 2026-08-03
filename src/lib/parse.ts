@@ -20,6 +20,12 @@
  *   Day 3                            ← 페이지 상단 표제 (제거)
  *   42                                ← 페이지 번호만 있는 줄 (제거)
  *   5ynthesize	통합하다             ← 숫자/기호가 알파벳으로 오인식 (보정)
+ *
+ * Quizlet 학습 화면에서 그대로 긁어 복사하면 이런 모양이 된다 (공식 "내보내기"의
+ * 깔끔한 탭 구분과 달리, 뜻 줄에 영어 유의어가 한글 뜻과 섞여 있다):
+ *   exploit                                                ← 단어만 있는 줄
+ *   utilize, use, make use of, take advantage of, 이용하다   ← 유의어 + 한글 뜻
+ *   (두 줄을 합쳐 en=exploit, ko="utilize, ..., 이용하다"로 — 유의어까지 그대로 살린다)
  */
 
 const HANGUL = /[ㄱ-ㆎ가-힣]/;
@@ -114,9 +120,15 @@ function splitByHangulBoundary(line: string): ParsedRow | null {
   }
   if (first < 0) return null;
 
-  // 영어가 앞: "synthesize 통합하다"
+  // 영어가 앞: "synthesize 통합하다" / "accomplishment, feat, 위업, 공적"
   const head = line.slice(0, first);
-  if (LATIN.test(head)) return buildRow(head, line.slice(first));
+  if (LATIN.test(head)) {
+    // head 안에 이미 쉼표가 있으면 유의어 나열이 시작된 것이다(Quizlet 복붙 등).
+    // 첫 쉼표까지만 단어로 삼고, 나머지(남은 유의어 + 한글 뜻)는 통째로 뜻에 묶는다.
+    const commaIdx = head.indexOf(',');
+    if (commaIdx >= 0) return buildRow(head.slice(0, commaIdx), line.slice(commaIdx + 1));
+    return buildRow(head, line.slice(first));
+  }
   // 한글이 앞: "통합하다 synthesize"
   const tail = line.slice(last + 1);
   if (LATIN.test(tail)) return buildRow(tail, line.slice(0, last + 1));
@@ -199,14 +211,16 @@ function isJunkLine(line: string): boolean {
 }
 
 const isLatinOnlyLine = (s: string) => LATIN.test(s) && !HANGUL.test(s);
-const isHangulOnlyLine = (s: string) => HANGUL.test(s) && !LATIN.test(s);
 
 /**
  * OCR 특유의 잡음을 걷어내 parseBulk가 다루기 좋은 형태로 만든다.
  *  - 전각 문자 → 반각, 스마트 따옴표 → 일반 따옴표
  *  - "Day 3" 같은 표제 줄, 페이지 번호만 있는 줄 제거
- *  - 영단어만 있는 줄 바로 다음에 한글만 있는 줄이 오면 한 줄로 합친다
- *    (카메라 OCR이 영단어 열과 뜻 열을 위아래로 잘못 인식하는 가장 흔한 경우)
+ *  - 영단어만 있는 줄 바로 다음에 한글이 포함된 줄이 오면 한 줄로 합친다
+ *    (카메라 OCR이 영단어 열과 뜻 열을 위아래로 잘못 인식하는 경우 · Quizlet 학습
+ *    화면을 그대로 긁었을 때 "단어" 줄 다음에 "유의어, 한글 뜻"이 섞인 줄이 오는 경우
+ *    둘 다 해당한다. 다음 줄이 한글만 있을 필요는 없다 — 유의어가 섞여 있어도
+ *    parseLine의 탭 처리가 한글 없는 조각은 걸러내고 한글 있는 조각만 뜻으로 묶는다)
  */
 export function normalizeOcrText(raw: string): string {
   const cleaned = straightenQuotes(toHalfwidth(raw));
@@ -220,7 +234,9 @@ export function normalizeOcrText(raw: string): string {
   for (let i = 0; i < lines.length; i++) {
     const cur = lines[i];
     const next = lines[i + 1];
-    if (next && !cur.includes('\t') && isLatinOnlyLine(cur) && isHangulOnlyLine(next)) {
+    // next가 이미 탭을 포함하면 그 자체로 완성된 한 쌍이다(예: 엑셀 복붙 줄 바로 다음에
+    // 영어만 있는 무관한 줄이 온 경우) — 그런 줄까지 앞줄과 합치면 안 된다.
+    if (next && !cur.includes('\t') && !next.includes('\t') && isLatinOnlyLine(cur) && HANGUL.test(next)) {
       merged.push(`${cur}\t${next}`);
       i++; // next는 이미 합쳤으니 건너뛴다
       continue;
