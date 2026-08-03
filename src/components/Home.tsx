@@ -29,10 +29,11 @@ interface Props {
   words: Word[];
   sync: CloudSync;
   onManageWords: () => void;
+  onStudy: () => void;
   onStart: () => void;
 }
 
-export default function Home({ db, words, sync, onManageWords, onStart }: Props) {
+export default function Home({ db, words, sync, onManageWords, onStudy, onStart }: Props) {
   const stats = useMemo(() => {
     const decks = deckNames(words);
     const dates = db.history.map((h) => h.date);
@@ -107,6 +108,9 @@ export default function Home({ db, words, sync, onManageWords, onStart }: Props)
         <div className="home-actions">
           <button className="btn primary lg" onClick={onStart}>
             퀴즈 시작
+          </button>
+          <button className="btn ghost lg" onClick={onStudy}>
+            단어장 보기
           </button>
           <button className="btn ghost lg" onClick={onManageWords}>
             단어장 관리

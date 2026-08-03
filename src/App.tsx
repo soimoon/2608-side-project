@@ -5,6 +5,7 @@ import { useCloudSync } from './lib/useCloudSync';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
 import Home from './components/Home';
 import WordManager from './components/WordManager';
+import StudyList from './components/StudyList';
 import SetupScreen from './components/SetupScreen';
 import QuizScreen from './components/QuizScreen';
 import ResultScreen from './components/ResultScreen';
@@ -12,6 +13,7 @@ import ResultScreen from './components/ResultScreen';
 type Screen =
   | { name: 'home' }
   | { name: 'words' }
+  | { name: 'study' }
   | { name: 'setup' }
   | { name: 'quiz'; words: Word[]; settings: QuizSettings }
   | { name: 'result'; session: SessionResult };
@@ -127,9 +129,12 @@ export default function App() {
             words={words}
             sync={sync}
             onManageWords={() => setScreen({ name: 'words' })}
+            onStudy={() => setScreen({ name: 'study' })}
             onStart={() => setScreen({ name: 'setup' })}
           />
         );
+      case 'study':
+        return <StudyList words={words} pronunciations={db.pronunciations} onBack={home} />;
       case 'words':
         return (
           <WordManager

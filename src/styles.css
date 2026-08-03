@@ -515,6 +515,62 @@ input[type='radio'] {
   min-width: 180px;
 }
 
+/* ---------- 단어장 보기 ---------- */
+.deck-picker {
+  min-width: 220px;
+  font-weight: 600;
+}
+
+.study-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.study-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.15s;
+}
+.study-card:hover {
+  border-color: var(--accent);
+}
+.study-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.study-en {
+  font-family: var(--mono);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--accent);
+  word-break: break-word;
+}
+.study-ko {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.study-ko-list {
+  margin: 0;
+  padding-left: 1.3em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.study-ko-list li::marker {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .word-table {
   width: 100%;
   border-collapse: collapse;
