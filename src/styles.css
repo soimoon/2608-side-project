@@ -871,8 +871,11 @@ input[type='radio'] {
   color: var(--text);
 }
 .slot.space {
+  /* 글자 슬롯 사이의 기본 gap과 거의 비슷한 폭이면 "account for"처럼 띄어쓰기가
+     있는 단어가 한 단어처럼 붙어 보인다. 확실히 넓혀 단어 경계가 보이게 한다. */
   border: 0;
-  width: 0.8ch;
+  width: 2.4ch;
+  min-width: 22px;
 }
 .len-hint {
   margin: -10px 0 0;

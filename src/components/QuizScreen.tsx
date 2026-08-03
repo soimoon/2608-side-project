@@ -171,14 +171,6 @@ export default function QuizScreen({
     return () => window.clearTimeout(t);
   }, [phase, verdict, advance, willPlayAudio]);
 
-  // 따라 치기: 정확히 입력하면 자동으로 다음 문제로.
-  useEffect(() => {
-    if (phase !== 'retype') return;
-    if (normalize(input) !== normalize(answer)) return;
-    const t = window.setTimeout(advance, 300);
-    return () => window.clearTimeout(t);
-  }, [phase, input, answer, advance]);
-
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -187,8 +179,19 @@ export default function QuizScreen({
     }
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    if (phase === 'answering') submit(judge(input, answer), input);
-    else if (phase === 'feedback' && verdict !== 'correct') advance();
+
+    if (phase === 'answering') {
+      // 아무것도 안 쳤는데 앞 문제에서 넘어온 Enter가 여기로 새어 들어오는 경우가
+      // 있다 — 빈 채로 제출하면 무조건 오답이 되니, 아예 반응하지 않는다.
+      if (!input.trim()) return;
+      submit(judge(input, answer), input);
+    } else if (phase === 'retype') {
+      // 다 쳤어도 자동으로 넘어가지 않는다 — 넘어가자마자 눌린 Enter가 다음 문제의
+      // 빈 입력을 오답으로 제출해 버리는 사고가 있었다. 맞게 쳤을 때만 Enter로 넘어간다.
+      if (normalize(input) === normalize(answer)) advance();
+    } else if (phase === 'feedback' && verdict !== 'correct') {
+      advance();
+    }
   }
 
   if (!item) return null;
@@ -283,7 +286,7 @@ export default function QuizScreen({
 
         <p className="hint-line muted">
           {phase === 'answering' && 'Enter로 제출 · Esc로 중단'}
-          {phase === 'retype' && '정답을 그대로 타이핑하면 다음 문제로 넘어갑니다'}
+          {phase === 'retype' && '정답을 그대로 입력한 뒤 Enter로 다음 문제'}
           {phase === 'feedback' && verdict !== 'correct' && 'Enter로 다음 문제'}
         </p>
       </div>
