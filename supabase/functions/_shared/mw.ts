@@ -50,9 +50,18 @@ interface MwPrs {
   sound?: { audio?: string };
 }
 
+interface MwVariant {
+  /** 대체 철자 (예: 영국식 "synthesise"). "*"로 음절이 구분된다. */
+  va?: string;
+  prs?: MwPrs[];
+}
+
 interface MwEntry {
   meta?: { id?: string };
   hwi?: { hw?: string; prs?: MwPrs[] };
+  /** 철자 변형. 미국/영국 철자 차이(-ize/-ise 등)가 있는 단어는 본표제어 자리(hwi.prs)가
+   *  비어 있고 여기에만 발음이 실리는 경우가 실제로 많다 (MW 응답으로 직접 확인). */
+  vrs?: MwVariant[];
 }
 
 /** 표제어를 비교 가능한 형태로. MW는 음절 구분에 "*"를 쓴다 ("syn*the*size"). */
@@ -79,9 +88,18 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
 
   for (const entry of data as MwEntry[]) {
     if (!entry || typeof entry !== 'object') continue;
+    // 표제어(meta.id/hwi.hw)가 정확히 일치하는 항목만 쓴다 — 이 판정을 통과하면
+    // 그 항목 전체(hwi + vrs)가 "이 단어에 대한 것"이라고 신뢰할 수 있다.
     if (headwordOf(entry) !== want) continue;
 
-    for (const p of entry.hwi?.prs ?? []) {
+    // 본표제어 발음이 우선이고, 없으면 철자 변형(vrs)의 발음을 쓴다. MW 문서상 vrs.prs는
+    // "그 변형 철자에 대한 것"이라 원칙적으로 본표제어 발음은 아니지만, 실제로는
+    // -ize/-ise처럼 소리가 사실상 같은 스펠링 변형에서 본표제어 쪽이 비어 있고
+    // vrs 쪽에만 발음이 실리는 경우가 흔하다(예: synthesize). 이미 표제어 자체는
+    // 위에서 확인했으므로 "엉뚱한 단어" 위험 없이 커버리지만 늘어난다.
+    const candidates = [...(entry.hwi?.prs ?? []), ...(entry.vrs ?? []).flatMap((v) => v.prs ?? [])];
+
+    for (const p of candidates) {
       // Learner's의 ipa를 우선한다 — 한국 학습자에게는 MW 자체 표기보다 IPA가 읽기 쉽다.
       const phonetic = p.ipa ?? p.mw;
       const notation: Notation | undefined = p.ipa ? 'ipa' : p.mw ? 'mw' : undefined;

@@ -32,21 +32,57 @@ describe('audioUrl', () => {
 });
 
 describe('extractPronunciation', () => {
-  const learnersEntry = {
-    meta: { id: 'synthesize' },
-    hwi: {
-      hw: 'syn*the*size',
-      prs: [{ ipa: 'ˈsɪnθəˌsaɪz', sound: { audio: 'synthe02' } }],
-    },
+  // dictionaryapi.com에 실제로 조회해 받은 응답 그대로 (2026-08, Learner's Dictionary).
+  const realAcuteEntry = {
+    meta: { id: 'acute' },
+    hwi: { hw: 'acute', prs: [{ ipa: 'əˈkjuːt', sound: { audio: 'acute001' } }] },
   };
 
+  // "synthesize" 실제 응답: hwi에는 prs가 아예 없고, 철자 변형(vrs, 영국식 "synthesise")
+  // 쪽에만 발음이 실려 있다 — 처음엔 이걸 놓쳐서 흔한 단어가 통째로 "발음 없음"이 됐다.
+  const realSynthesizeEntry = {
+    meta: { id: 'synthesize' },
+    hwi: { hw: 'syn*the*size' },
+    vrs: [
+      {
+        vl: 'also British',
+        va: 'syn*the*sise',
+        prs: [{ ipa: 'ˈsɪnθəˌsaɪz', sound: { audio: 'synthe04' } }],
+      },
+    ],
+  };
+
+  const learnersEntry = realSynthesizeEntry;
+
   it('Learner\'s 응답에서 IPA와 음원 URL을 뽑는다', () => {
-    const got = extractPronunciation([learnersEntry], 'synthesize');
+    const got = extractPronunciation([realAcuteEntry], 'acute');
+    expect(got).toEqual({
+      phonetic: 'əˈkjuːt',
+      notation: 'ipa',
+      audioUrl: 'https://media.merriam-webster.com/audio/prons/en/us/mp3/a/acute001.mp3',
+    });
+  });
+
+  it('본표제어(hwi)에 발음이 없으면 철자 변형(vrs)의 발음으로 대체한다', () => {
+    // 이미 headwordOf()로 "이 항목 = synthesize"를 확인한 뒤라, vrs를 써도
+    // 엉뚱한 단어 위험 없이 커버리지만 늘어난다. 실제로 -ize/-ise는 소리가 같다.
+    const got = extractPronunciation([realSynthesizeEntry], 'synthesize');
     expect(got).toEqual({
       phonetic: 'ˈsɪnθəˌsaɪz',
       notation: 'ipa',
-      audioUrl: 'https://media.merriam-webster.com/audio/prons/en/us/mp3/s/synthe02.mp3',
+      audioUrl: 'https://media.merriam-webster.com/audio/prons/en/us/mp3/s/synthe04.mp3',
     });
+  });
+
+  it('본표제어에 발음이 있으면 vrs보다 그쪽을 우선한다', () => {
+    const data = [
+      {
+        meta: { id: 'acute' },
+        hwi: { hw: 'acute', prs: [{ ipa: 'əˈkjuːt', sound: { audio: 'acute001' } }] },
+        vrs: [{ va: 'akute', prs: [{ ipa: 'WRONG', sound: { audio: 'wrong' } }] }],
+      },
+    ];
+    expect(extractPronunciation(data, 'acute')?.phonetic).toBe('əˈkjuːt');
   });
 
   it('Collegiate 응답(mw 표기)도 표기 체계를 붙여 뽑는다', () => {
