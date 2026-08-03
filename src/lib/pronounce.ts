@@ -24,38 +24,78 @@ function normalizeSource(s: string): Pronunciation['source'] {
   return s === 'learners' || s === 'collegiate' ? s : 'none';
 }
 
+interface PronunciationRow {
+  en: string;
+  ipa: string | null;
+  audio_url: string | null;
+  source: string;
+}
+
 /**
- * 서버(Edge Function)에서 발음을 받아온다. 이미 캐시된 단어는 서버가 즉시 돌려주고,
- * 새 단어만 MW를 실제로 조회한다.
+ * 이미 서버(pronunciations 테이블)에 캐시된 발음을 직접 조회한다.
+ * 이 테이블은 RLS로 누구나 읽을 수 있게 열려 있어 로그인 여부와 무관하게 동작한다 —
+ * 브라우저 로컬 캐시가 비어 있어도(다른 기기, 새로고침, 브라우저 데이터 정리 등)
+ * 이미 누군가 한 번이라도 조회한 단어라면 매번 다시 불러올 필요가 없다.
+ */
+async function fetchFromSharedCache(words: string[]): Promise<Pronunciation[]> {
+  if (!supabase || words.length === 0) return [];
+  try {
+    const { data, error } = await supabase
+      .from('pronunciations')
+      .select('en, ipa, audio_url, source')
+      .in('en', words);
+    if (error || !data) return [];
+    const now = Date.now();
+    return (data as PronunciationRow[]).map((r) => ({
+      en: r.en,
+      ipa: r.ipa ?? undefined,
+      audioUrl: r.audio_url ?? undefined,
+      source: normalizeSource(r.source),
+      fetchedAt: now,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 발음을 받아온다. 먼저 서버 공유 캐시를 확인하고(로그인 불필요, 즉시), 거기에도
+ * 없는 단어만 로그인 상태에서 Edge Function을 통해 MW를 새로 조회한다(할당량 보호).
  *
- * 실패하면 빈 배열 — 호출부는 "아직 모름"으로 취급하면 된다.
+ * 실패해도 지금까지 구한 것만 돌려준다 — 호출부는 나머지를 "아직 모름"으로 취급하면 된다.
  */
 export async function fetchPronunciations(words: string[]): Promise<Pronunciation[]> {
   if (!supabase || words.length === 0) return [];
 
-  // 로그인하지 않았으면 서버가 401을 줄 것이므로 미리 걸러 불필요한 요청을 아낀다.
+  const cached = await fetchFromSharedCache(words);
+  const cachedKeys = new Set(cached.map((c) => c.en));
+  const stillMissing = words.filter((w) => !cachedKeys.has(w.trim().toLowerCase()));
+  if (stillMissing.length === 0) return cached;
+
+  // 서버에도 없는, 진짜 처음 조회하는 단어만 로그인이 필요하다.
   const { data: sessionData } = await supabase.auth.getSession();
-  if (!sessionData.session) return [];
+  if (!sessionData.session) return cached;
 
   try {
     const { data, error } = await supabase.functions.invoke<PronounceResponse>('pronounce', {
-      body: { words },
+      body: { words: stillMissing },
     });
     if (error || !data?.pronunciations) {
       if (error) console.warn('발음 조회 실패 (기능만 비활성화됩니다)', error);
-      return [];
+      return cached;
     }
     const now = Date.now();
-    return data.pronunciations.map((p) => ({
+    const fetched = data.pronunciations.map((p) => ({
       en: p.en,
       ipa: p.ipa,
       audioUrl: p.audioUrl,
       source: normalizeSource(p.source),
       fetchedAt: now,
     }));
+    return [...cached, ...fetched];
   } catch (e) {
     console.warn('발음 조회 실패 (기능만 비활성화됩니다)', e);
-    return [];
+    return cached;
   }
 }
 

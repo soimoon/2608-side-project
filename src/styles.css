@@ -8,7 +8,9 @@
   --accent: #ff6fa5;
   --ok: #3ddc97;
   --near: #ffc94d;
-  --err: #ff6b7a;
+  /* 액센트가 핑크라 err도 핑크에 가까우면 "경고"가 묻힌다. 주황 쪽으로 눌러
+     확실히 다른 색으로 읽히게 한다 (특히 퀴즈 타이머 임박 표시). */
+  --err: #ff5449;
   --radius: 14px;
   --mono: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Consolas, monospace;
 
@@ -26,7 +28,7 @@
     --accent: #d6336c;
     --ok: #12a06a;
     --near: #b8820b;
-    --err: #d63b4d;
+    --err: #dc2626;
     color-scheme: light;
   }
 }
@@ -786,8 +788,20 @@ input[type='radio'] {
   min-width: 62px;
   text-align: right;
 }
+/* 신호등 규칙: 넉넉하면 초록, 절반 아래면 노랑, 1/4 아래면 빨강(+깜빡임).
+   전체 UI는 핑크 테마지만 타이머는 상태 표시라 통용되는 색을 그대로 쓴다. */
+.clock.ok {
+  color: var(--ok);
+}
+.clock.warn {
+  color: var(--near);
+  font-weight: 700;
+}
 .clock.urgent {
   color: var(--err);
+  font-weight: 700;
+  /* 색 대비만으로는 부족할 수 있어(색약 등) 깜빡임으로도 다급함을 알린다. */
+  animation: pulse 0.7s ease-in-out infinite;
 }
 
 .timer-track {
@@ -798,10 +812,15 @@ input[type='radio'] {
 }
 .timer-fill {
   height: 100%;
-  background: var(--accent);
   transform-origin: left;
   /* 100ms 간격 갱신을 부드럽게 잇는다. */
   transition: transform 0.1s linear, background 0.2s;
+}
+.timer-fill.ok {
+  background: var(--ok);
+}
+.timer-fill.warn {
+  background: var(--near);
 }
 .timer-fill.urgent {
   background: var(--err);

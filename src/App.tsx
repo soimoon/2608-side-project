@@ -153,6 +153,7 @@ export default function App() {
             words={words}
             decks={decks}
             pronunciations={db.pronunciations}
+            onFetchPronunciations={cachePronunciations}
             onBack={home}
           />
         );

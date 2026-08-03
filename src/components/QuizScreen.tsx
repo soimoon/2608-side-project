@@ -199,7 +199,9 @@ export default function QuizScreen({
   const total = queue.length;
   const extra = total - words.length;
   const ratio = Math.max(0, remaining / settings.seconds);
-  const urgent = remaining <= 3;
+  // 신호등처럼: 시간이 넉넉하면 초록, 절반 아래로 내려가면 노랑, 1/4 아래면 빨강(+깜빡임).
+  // 전체는 핑크 테마여도 타이머는 상태를 알리는 용도라 통용되는 색 규칙을 그대로 쓴다.
+  const timerStage = ratio <= 0.25 ? 'urgent' : ratio <= 0.5 ? 'warn' : 'ok';
   const retypeMatched = phase === 'retype' && normalize(input) === normalize(answer);
 
   return (
@@ -212,14 +214,14 @@ export default function QuizScreen({
           {idx + 1} / {total}
           {extra > 0 && <span className="muted"> (+{extra} 복습)</span>}
         </span>
-        <span className={`clock ${urgent && phase === 'answering' ? 'urgent' : ''}`}>
+        <span className={`clock ${phase === 'answering' ? timerStage : ''}`}>
           {phase === 'answering' ? remaining.toFixed(1) : (0).toFixed(1)}s
         </span>
       </div>
 
       <div className="timer-track">
         <div
-          className={`timer-fill ${urgent ? 'urgent' : ''}`}
+          className={`timer-fill ${timerStage}`}
           style={{ transform: `scaleX(${phase === 'answering' ? ratio : 0})` }}
         />
       </div>

@@ -33,7 +33,12 @@ export default function PronounceButton({ pron, showPhonetic = true, size = 'md'
             {phonetic}
           </span>
         )}
-        <span className="pron-none muted">발음 없음</span>
+        <span
+          className="pron-none muted"
+          title="Merriam-Webster 사전에서 확인했지만 이 단어(숙어 등)는 별도 발음 녹음이 없습니다"
+        >
+          발음 없음
+        </span>
       </span>
     );
   }

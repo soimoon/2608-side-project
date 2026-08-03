@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Pronunciation, Word } from '../types';
 import { guessSplit, parseBulk } from '../lib/parse';
 import { DEFAULT_DECK, download, exportCSV, exportWordsJSON, makeWord } from '../lib/storage';
@@ -75,6 +75,14 @@ export default function WordManager({
     () => missingFromCache(visible.map((w) => w.en), pronunciations).length,
     [visible, pronunciations],
   );
+
+  // 화면을 열거나 검색·필터가 바뀔 때마다 조용히 채운다 — 서버 공유 캐시에 이미
+  // 있는 단어라면 버튼을 안 눌러도 바로 보인다. 정말 새 단어만 버튼으로 남는다.
+  // 검색창에 한 글자씩 칠 때마다 visible이 바뀌므로, 잠깐 멈췄을 때만 부른다.
+  useEffect(() => {
+    const t = window.setTimeout(() => void onFetchPronunciations(visible), 400);
+    return () => window.clearTimeout(t);
+  }, [visible, onFetchPronunciations]);
 
   async function loadPronunciations() {
     setLoadingPron(true);
@@ -435,8 +443,13 @@ export default function WordManager({
               ))}
             </select>
             {pronMissing > 0 && (
-              <button className="btn ghost sm" disabled={loadingPron} onClick={loadPronunciations}>
-                {loadingPron ? '발음 불러오는 중…' : `발음 불러오기 (${pronMissing})`}
+              <button
+                className="btn ghost sm"
+                disabled={loadingPron}
+                onClick={loadPronunciations}
+                title="이미 조회된 적 있는 단어는 화면을 열 때 자동으로 채워진다. 이 버튼은 아직 아무도 조회한 적 없는 새 단어를 위한 것이다(로그인 필요)."
+              >
+                {loadingPron ? '확인 중…' : `새 단어 발음 확인 (${pronMissing})`}
               </button>
             )}
             {filterDeck && (
