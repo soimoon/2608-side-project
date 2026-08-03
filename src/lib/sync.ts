@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
-import type { Word } from '../types';
+import { isTheme } from './storage';
+import type { Theme, Word } from '../types';
 
 /**
  * localStorage가 항상 정본이고, 이 파일은 그 위에 얹는 동기화 계층이다.
@@ -183,4 +184,35 @@ export function mergeGuestWithCloud(local: Word[], remote: Word[]): MergeOutcome
       : `로컬 ${local.length}개 + 클라우드 ${remote.length}개 → ${merged.length}개`;
 
   return { words: merged, summary };
+}
+
+/**
+ * 계정에 저장된 마지막 테마를 가져온다. 로그인할 때 한 번만 부른다 — 그 이후로는
+ * 로컬 값을 정본으로 쓰고, 사용자가 테마를 바꿀 때마다 pushTheme로 계정에 반영한다.
+ * 값이 없거나(신규 계정) 실패하면 null — 호출부는 로컬 테마를 그대로 유지하면 된다.
+ */
+export async function pullTheme(userId: string): Promise<Theme | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('theme')
+      .eq('id', userId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const theme = (data as { theme: string | null }).theme;
+    return isTheme(theme) ? theme : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 테마는 취향 설정이라 실패해도 조용히 넘어간다(재시도하지 않음). */
+export async function pushTheme(userId: string, theme: Theme): Promise<void> {
+  if (!supabase) return;
+  try {
+    await supabase.from('profiles').update({ theme }).eq('id', userId);
+  } catch {
+    /* no-op */
+  }
 }

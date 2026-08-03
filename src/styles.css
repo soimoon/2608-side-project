@@ -1,15 +1,10 @@
+/* 테마(색 팔레트)와 무관하게 항상 같은 값들. --ok/--near/--err는 특히
+   퀴즈 타이머 신호등 색이라, 테마를 바꿔도 절대 달라지면 안 된다. */
 :root {
-  --bg: #131118;
-  --surface: #1c1923;
-  --surface-2: #25212d;
-  --line: #342e3e;
   --text: #e8eaf0;
   --muted: #8b93a7;
-  --accent: #ff6fa5;
   --ok: #3ddc97;
   --near: #ffc94d;
-  /* 액센트가 핑크라 err도 핑크에 가까우면 "경고"가 묻힌다. 주황 쪽으로 눌러
-     확실히 다른 색으로 읽히게 한다 (특히 퀴즈 타이머 임박 표시). */
   --err: #ff5449;
   --radius: 14px;
   --mono: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Consolas, monospace;
@@ -19,17 +14,52 @@
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #faf4f9;
-    --surface: #fffdff;
-    --surface-2: #f6edf4;
-    --line: #e9dde8;
     --text: #171a22;
     --muted: #6b7488;
-    --accent: #d6336c;
     --ok: #12a06a;
     --near: #b8820b;
     --err: #dc2626;
     color-scheme: light;
+  }
+}
+
+/* ---------- 테마별 팔레트 ----------
+   <html data-theme="..."> 로 고른다. data-theme이 아직 없거나(JS 실행 전)
+   모르는 값이면 :root 단독 선택자가 걸려 자동으로 blue가 기본값이 된다.
+   새 테마 추가 시 여기에 [data-theme="이름"] 블록만 더하면 된다. */
+:root,
+[data-theme='blue'] {
+  --bg: #0f1116;
+  --surface: #171a22;
+  --surface-2: #1f232d;
+  --line: #2b303c;
+  --accent: #6aa8ff;
+}
+@media (prefers-color-scheme: light) {
+  :root,
+  [data-theme='blue'] {
+    --bg: #f6f7fb;
+    --surface: #ffffff;
+    --surface-2: #f0f2f7;
+    --line: #dfe3ec;
+    --accent: #2f6fd0;
+  }
+}
+
+[data-theme='pink'] {
+  --bg: #131118;
+  --surface: #1c1923;
+  --surface-2: #25212d;
+  --line: #342e3e;
+  --accent: #ff6fa5;
+}
+@media (prefers-color-scheme: light) {
+  [data-theme='pink'] {
+    --bg: #faf4f9;
+    --surface: #fffdff;
+    --surface-2: #f6edf4;
+    --line: #e9dde8;
+    --accent: #d6336c;
   }
 }
 
@@ -249,6 +279,23 @@ input[type='radio'] {
 }
 
 /* ---------- 홈 ---------- */
+.topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.theme-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+.theme-picker select {
+  padding: 5px 8px;
+  font-size: 0.85rem;
+}
 .authbar {
   display: flex;
   align-items: center;

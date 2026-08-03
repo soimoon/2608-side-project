@@ -74,6 +74,14 @@ export interface Pronunciation {
   fetchedAt: number;
 }
 
+/**
+ * 색 테마. 새 테마를 추가할 땐 여기에 이름만 더하면 된다 — styles.css에
+ * [data-theme="..."] 블록을 추가하고, Home.tsx의 THEME_LABELS에 표시 이름만
+ * 더하면 선택 목록에 자동으로 나타난다.
+ */
+export const THEMES = ['blue', 'pink'] as const;
+export type Theme = (typeof THEMES)[number];
+
 export type Verdict = 'correct' | 'near' | 'wrong' | 'timeout';
 
 /** 한 문제의 풀이 결과. */
@@ -116,7 +124,7 @@ export interface SyncCursor {
 }
 
 export interface DB {
-  version: 4;
+  version: 5;
   words: Word[];
   settings: QuizSettings;
   history: SessionResult[];
@@ -130,4 +138,10 @@ export interface DB {
    * 로컬에만 있다 — 단어가 하나라도 들어가는 순간부터는 그 단어를 통해 동기화된다.
    */
   decks: string[];
+  /**
+   * 선택한 색 테마. 로컬(오프라인 우선, 즉시 반영)에 항상 저장되고, 로그인
+   * 상태면 계정(profiles.theme)에도 올라가 다른 기기에서도 마지막에 고른
+   * 테마가 그대로 적용된다.
+   */
+  theme: Theme;
 }

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Attempt, DB, QuizSettings, SessionResult, Word } from './types';
+import type { Attempt, DB, QuizSettings, SessionResult, Theme, Word } from './types';
 import { activeWords, loadDB, newId, saveDB } from './lib/storage';
 import { useCloudSync } from './lib/useCloudSync';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
+import { pullTheme, pushTheme } from './lib/sync';
 import { allDeckNames } from './lib/select';
 import Home from './components/Home';
 import WordManager from './components/WordManager';
@@ -39,6 +40,32 @@ export default function App() {
 
   // 로그인 안 해도(.env.local 미설정 포함) 완전히 잠들어 있는 훅. 게스트 모드에 영향 없음.
   const sync = useCloudSync(db, setDB);
+
+  // 테마는 <html data-theme="..."> 로 CSS에 반영한다. 오프라인에서도 즉시 적용되도록
+  // 로컬 db.theme을 정본으로 쓰고, 로그인 상태면 바뀔 때마다 계정에도 올린다.
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', db.theme);
+  }, [db.theme]);
+
+  const setTheme = useCallback(
+    (theme: Theme) => {
+      setDB((d) => ({ ...d, theme }));
+      if (sync.session) void pushTheme(sync.session.user.id, theme);
+    },
+    [sync.session],
+  );
+
+  // 로그인 직후 한 번, 계정에 저장된 마지막 테마를 가져와 적용한다. 이후로는
+  // 로컬 값이 정본이고, 테마를 바꿀 때마다 setTheme이 계정에 반영한다.
+  const themePulledFor = useRef<string | null>(null);
+  useEffect(() => {
+    const userId = sync.session?.user.id;
+    if (!userId || themePulledFor.current === userId) return;
+    themePulledFor.current = userId;
+    void pullTheme(userId).then((remote) => {
+      if (remote && remote !== dbRef.current.theme) setDB((d) => ({ ...d, theme: remote }));
+    });
+  }, [sync.session]);
 
   const setWords = useCallback((updater: (prev: Word[]) => Word[]) => {
     setDB((d) => ({ ...d, words: updater(d.words) }));
@@ -142,6 +169,8 @@ export default function App() {
             db={db}
             words={words}
             sync={sync}
+            theme={db.theme}
+            onThemeChange={setTheme}
             onManageWords={() => setScreen({ name: 'words' })}
             onStudy={() => setScreen({ name: 'study' })}
             onStart={() => setScreen({ name: 'setup' })}
@@ -208,6 +237,7 @@ export default function App() {
     words,
     decks,
     sync,
+    setTheme,
     setWords,
     createDeck,
     removeDeckName,

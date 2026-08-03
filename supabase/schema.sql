@@ -8,6 +8,8 @@
 create table if not exists profiles (
   id uuid primary key references auth.users on delete cascade,
   display_name text,
+  -- 마지막으로 고른 색 테마. 로그인 시 이 값을 불러와 다른 기기에도 적용한다.
+  theme text not null default 'blue',
   created_at timestamptz not null default now()
 );
 
@@ -118,3 +120,9 @@ create policy "pronunciations_select_all" on pronunciations
 -- 기존 값 "통합하다"는 원소 1개짜리 배열 {"통합하다"}가 되어 데이터가 그대로 보존된다.
 --
 --   alter table words alter column ko type text[] using array[ko]::text[];
+
+-- ---------- 마이그레이션: profiles.theme 추가 ----------
+-- 이미 profiles 테이블이 있다면(테마 기능 추가 전에 만든 프로젝트) 위 CREATE TABLE은
+-- 조용히 무시된다. 아래를 한 번만 따로 실행한다.
+--
+--   alter table profiles add column if not exists theme text not null default 'blue';

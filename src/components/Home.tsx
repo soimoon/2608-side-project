@@ -1,8 +1,14 @@
 import { useMemo } from 'react';
-import type { DB, Word } from '../types';
+import { THEMES, type DB, type Theme, type Word } from '../types';
 import { deckNames } from '../lib/select';
 import type { CloudSync } from '../lib/useCloudSync';
 import AuthBar from './AuthBar';
+
+// Theme에 새 값을 추가하면 여기서 타입 에러가 나 라벨 추가를 잊지 않게 된다.
+const THEME_LABELS: Record<Theme, string> = {
+  blue: '기본 (파랑)',
+  pink: '핑크',
+};
 
 function todayKey(): string {
   return new Date().toLocaleDateString('sv-SE');
@@ -28,12 +34,23 @@ interface Props {
   /** 소프트 삭제된 단어를 뺀 목록. 통계·단어장 집계는 전부 여기 기준. */
   words: Word[];
   sync: CloudSync;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
   onManageWords: () => void;
   onStudy: () => void;
   onStart: () => void;
 }
 
-export default function Home({ db, words, sync, onManageWords, onStudy, onStart }: Props) {
+export default function Home({
+  db,
+  words,
+  sync,
+  theme,
+  onThemeChange,
+  onManageWords,
+  onStudy,
+  onStart,
+}: Props) {
   const stats = useMemo(() => {
     const decks = deckNames(words);
     const dates = db.history.map((h) => h.date);
@@ -55,7 +72,19 @@ export default function Home({ db, words, sync, onManageWords, onStudy, onStart 
 
   return (
     <div className="screen home">
-      <AuthBar sync={sync} />
+      <div className="topline">
+        <label className="theme-picker">
+          <span className="muted">테마</span>
+          <select value={theme} onChange={(e) => onThemeChange(e.target.value as Theme)}>
+            {THEMES.map((t) => (
+              <option key={t} value={t}>
+                {THEME_LABELS[t]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <AuthBar sync={sync} />
+      </div>
       <header className="hero">
         <h1>
           Voca <span className="accent">Quiz</span>

@@ -1,12 +1,14 @@
-import type { DB, QuizSettings, Word } from '../types';
+import { THEMES, type DB, type QuizSettings, type Theme, type Word } from '../types';
 
-const KEY = 'voca-quiz/v4';
-/** v4 이전 데이터. 있으면 1회 마이그레이션하고, 원본은 롤백 대비로 남겨 둔다. */
+const KEY = 'voca-quiz/v5';
+/** v5 이전 데이터. 있으면 1회 마이그레이션하고, 원본은 롤백 대비로 남겨 둔다. */
+const LEGACY_V4_KEY = 'voca-quiz/v4';
 const LEGACY_V3_KEY = 'voca-quiz/v3';
 const LEGACY_V2_KEY = 'voca-quiz/v2';
 const LEGACY_V1_KEY = 'voca-quiz/v1';
 
 export const DEFAULT_DECK = '기본';
+export const DEFAULT_THEME: Theme = 'blue';
 
 export const DEFAULT_SETTINGS: QuizSettings = {
   decks: [],
@@ -19,15 +21,21 @@ export const DEFAULT_SETTINGS: QuizSettings = {
   autoPlayAudio: true,
 };
 
+/** 알 수 없는 값(구버전 데이터, 미래 버전이 내려보낸 값 등)이면 기본 테마로. */
+export function isTheme(value: unknown): value is Theme {
+  return typeof value === 'string' && (THEMES as readonly string[]).includes(value);
+}
+
 function emptyDB(): DB {
   return {
-    version: 4,
+    version: 5,
     words: [],
     settings: { ...DEFAULT_SETTINGS },
     history: [],
     sync: { lastPulledAt: 0, lastPushedAt: 0 },
     pronunciations: {},
     decks: [],
+    theme: DEFAULT_THEME,
   };
 }
 
@@ -78,26 +86,27 @@ function normalizeLegacyWord(w: Record<string, unknown>): Word | null {
   };
 }
 
-/** v1·v2(ko가 문자열이던 시절) 데이터를 v4 모양으로 채워 넣는다. 두 버전 모두 구조가 같아 하나로 처리한다. */
+/** v1·v2(ko가 문자열이던 시절) 데이터를 v5 모양으로 채워 넣는다. 두 버전 모두 구조가 같아 하나로 처리한다. */
 function migrateLegacy(parsed: Record<string, unknown>): DB {
   const rawWords = Array.isArray(parsed.words) ? (parsed.words as Record<string, unknown>[]) : [];
   const words = rawWords.map(normalizeLegacyWord).filter((w): w is Word => w !== null);
 
   return {
-    version: 4,
+    version: 5,
     words,
     settings: { ...DEFAULT_SETTINGS, ...((parsed.settings as Partial<QuizSettings>) ?? {}) },
     history: Array.isArray(parsed.history) ? (parsed.history as DB['history']) : [],
     sync: { lastPulledAt: 0, lastPushedAt: 0 },
     pronunciations: {},
     decks: [],
+    theme: DEFAULT_THEME,
   };
 }
 
-/** v3(ko는 이미 배열, decks 목록만 없던 시절) → v4. */
+/** v3(ko는 이미 배열, decks·theme만 없던 시절) → v5. */
 function migrateV3(parsed: Record<string, unknown>): DB {
   return {
-    version: 4,
+    version: 5,
     words: Array.isArray(parsed.words)
       ? (parsed.words as Word[]).map((w) => ({ ...w, ko: toKoArray(w.ko) }))
       : [],
@@ -106,6 +115,23 @@ function migrateV3(parsed: Record<string, unknown>): DB {
     sync: (parsed.sync as DB['sync']) ?? { lastPulledAt: 0, lastPushedAt: 0 },
     pronunciations: (parsed.pronunciations as DB['pronunciations']) ?? {},
     decks: [],
+    theme: DEFAULT_THEME,
+  };
+}
+
+/** v4(decks까지는 있고 theme만 없던 시절) → v5. */
+function migrateV4(parsed: Record<string, unknown>): DB {
+  return {
+    version: 5,
+    words: Array.isArray(parsed.words)
+      ? (parsed.words as Word[]).map((w) => ({ ...w, ko: toKoArray(w.ko) }))
+      : [],
+    settings: { ...DEFAULT_SETTINGS, ...((parsed.settings as Partial<QuizSettings>) ?? {}) },
+    history: Array.isArray(parsed.history) ? (parsed.history as DB['history']) : [],
+    sync: (parsed.sync as DB['sync']) ?? { lastPulledAt: 0, lastPushedAt: 0 },
+    pronunciations: (parsed.pronunciations as DB['pronunciations']) ?? {},
+    decks: Array.isArray(parsed.decks) ? (parsed.decks as string[]) : [],
+    theme: DEFAULT_THEME,
   };
 }
 
@@ -115,7 +141,7 @@ export function loadDB(): DB {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<DB>;
       return {
-        version: 4,
+        version: 5,
         // 방어적으로 한 번 더 배열화한다 — 수동으로 손댄 localStorage 등 이상값 대비.
         words: Array.isArray(parsed.words)
           ? parsed.words.map((w) => ({ ...w, ko: toKoArray(w.ko) }))
@@ -125,10 +151,17 @@ export function loadDB(): DB {
         sync: parsed.sync ?? { lastPulledAt: 0, lastPushedAt: 0 },
         pronunciations: parsed.pronunciations ?? {},
         decks: Array.isArray(parsed.decks) ? parsed.decks : [],
+        theme: isTheme(parsed.theme) ? parsed.theme : DEFAULT_THEME,
       };
     }
 
-    // v4 키가 없으면 구버전이 있는지 순서대로 확인해 단어를 잃지 않고 옮긴다.
+    // v5 키가 없으면 구버전이 있는지 순서대로 확인해 단어를 잃지 않고 옮긴다.
+    const v4Raw = localStorage.getItem(LEGACY_V4_KEY);
+    if (v4Raw) {
+      const migrated = migrateV4(JSON.parse(v4Raw) as Record<string, unknown>);
+      saveDB(migrated);
+      return migrated;
+    }
     const v3Raw = localStorage.getItem(LEGACY_V3_KEY);
     if (v3Raw) {
       const migrated = migrateV3(JSON.parse(v3Raw) as Record<string, unknown>);
@@ -139,7 +172,7 @@ export function loadDB(): DB {
       const legacyRaw = localStorage.getItem(legacyKey);
       if (legacyRaw) {
         const migrated = migrateLegacy(JSON.parse(legacyRaw) as Record<string, unknown>);
-        saveDB(migrated); // 바로 v4로 저장해, 다음부터는 이 분기를 타지 않는다.
+        saveDB(migrated); // 바로 v5로 저장해, 다음부터는 이 분기를 타지 않는다.
         return migrated;
       }
     }
