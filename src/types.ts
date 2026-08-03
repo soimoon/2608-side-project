@@ -99,6 +99,14 @@ export interface SyncCursor {
   lastPulledAt: number;
   /** 로컬에서 이 시각 이후로 바뀐 행만 서버에 올리면 된다. */
   lastPushedAt: number;
+  /**
+   * 마지막으로 동기화한 Supabase 계정의 id. 같은 기기에서 다른 계정으로 로그인하면
+   * 이 값이 달라지는데, 그때는 커서를 그대로 믿으면 안 된다 — A 계정 기준 커서로
+   * B 계정을 pull/push하면 B의 기존 단어를 못 받아오고, A의 로컬 잔여 데이터가
+   * 조용히 B 계정에 올라갈 수 있다. 계정이 바뀐 걸 감지해 최초 동기화(병합)로
+   * 되돌리기 위한 값이다.
+   */
+  userId?: string;
 }
 
 export interface DB {

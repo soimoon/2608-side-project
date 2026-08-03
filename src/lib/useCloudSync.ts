@@ -43,8 +43,13 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
     try {
       const userId = session.user.id;
       const current = dbRef.current;
-      // 커서가 둘 다 0이면 이 계정으로는 한 번도 동기화한 적이 없다는 뜻이다.
-      const firstSync = current.sync.lastPulledAt === 0 && current.sync.lastPushedAt === 0;
+      // 커서가 둘 다 0이면 이 기기에서 한 번도 동기화한 적이 없다는 뜻이고,
+      // userId가 다르면 "같은 기기, 다른 계정으로 로그인"한 경우다 — 둘 다
+      // 최초 동기화(병합)로 취급해야 한다. 그러지 않으면 이전 계정 기준 커서로
+      // 새 계정을 pull/push하게 되어 데이터가 섞이거나 누락된다.
+      const firstSync =
+        (current.sync.lastPulledAt === 0 && current.sync.lastPushedAt === 0) ||
+        (current.sync.userId !== undefined && current.sync.userId !== userId);
       // 요청을 보내기 "전" 시각을 커서로 쓴다. 응답이 오는 동안 생긴 로컬 변경은
       // 이 값보다 늦으므로, 다음 sync에서 자연스럽게 다시 집힌다.
       const tick = Date.now();
@@ -59,7 +64,7 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
         const pushed = await pushWords(userId, mergedWords, 0, true);
         if (!pushed.ok) throw new Error(pushed.error ?? '동기화 실패');
 
-        setDB((d) => ({ ...d, sync: { lastPulledAt: tick, lastPushedAt: tick } }));
+        setDB((d) => ({ ...d, sync: { lastPulledAt: tick, lastPushedAt: tick, userId } }));
         setMessage(summary);
       } else {
         const pulled = await pullWords(userId, current.sync.lastPulledAt);
@@ -80,7 +85,7 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
         const pushed = await pushWords(userId, dbRef.current.words, current.sync.lastPushedAt);
         if (!pushed.ok) throw new Error(pushed.error ?? '동기화 실패');
 
-        setDB((d) => ({ ...d, sync: { lastPulledAt: tick, lastPushedAt: tick } }));
+        setDB((d) => ({ ...d, sync: { lastPulledAt: tick, lastPushedAt: tick, userId } }));
         setMessage(undefined);
       }
       setStatus('synced');
