@@ -37,6 +37,9 @@ export interface GameRoom {
   speed: Speed;
   roundCount: number;
   gameNo: number;
+  /** 방 생성 시각. 모든 클라이언트가 DB에서 같은 값을 읽으므로, 아직 게임이 시작되지
+   *  않은 상태에서도(예: Phase 2 디버그 스케줄) 기기 간에 공유되는 기준 시각으로 쓴다. */
+  createdAt: number;
 }
 
 export interface RoomPlayer {
@@ -114,6 +117,7 @@ interface GameRoomRow {
   speed: Speed;
   round_count: number;
   game_no: number;
+  created_at: string;
 }
 
 function fromRoomRow(r: GameRoomRow): GameRoom {
@@ -126,6 +130,7 @@ function fromRoomRow(r: GameRoomRow): GameRoom {
     speed: r.speed,
     roundCount: r.round_count,
     gameNo: r.game_no,
+    createdAt: new Date(r.created_at).getTime(),
   };
 }
 
@@ -217,7 +222,7 @@ export async function fetchRoom(roomId: string): Promise<GameRoom | null> {
   try {
     const { data, error } = await supabase
       .from('game_rooms')
-      .select('id, title, host_id, max_players, status, speed, round_count, game_no')
+      .select('id, title, host_id, max_players, status, speed, round_count, game_no, created_at')
       .eq('id', roomId)
       .maybeSingle();
     if (error || !data) return null;
