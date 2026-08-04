@@ -18,7 +18,8 @@ import ProfileScreen from './components/ProfileScreen';
 import WordsHub from './components/WordsHub';
 import WordManager from './components/WordManager';
 import StudyList from './components/StudyList';
-import GroupPlaceholder from './components/GroupPlaceholder';
+import RoomListScreen from './components/group/RoomListScreen';
+import RoomScreen from './components/group/RoomScreen';
 import QuizHub from './components/QuizHub';
 import SetupScreen from './components/SetupScreen';
 import QuizScreen from './components/QuizScreen';
@@ -30,6 +31,7 @@ type Screen =
   | { name: 'words' }
   | { name: 'study' }
   | { name: 'group' }
+  | { name: 'room'; roomId: string }
   | { name: 'quizHub' }
   | { name: 'setup' }
   | { name: 'quiz'; words: Word[]; settings: QuizSettings }
@@ -47,6 +49,7 @@ function tabOf(name: Screen['name']): Tab {
     case 'result':
       return 'quiz';
     case 'group':
+    case 'room':
       return 'group';
     case 'profile':
       return 'profile';
@@ -280,6 +283,8 @@ export default function App() {
   const goProfile = useCallback(() => setScreen({ name: 'profile' }), []);
   const goQuizHub = useCallback(() => setScreen({ name: 'quizHub' }), []);
   const goSetup = useCallback(() => setScreen({ name: 'setup' }), []);
+  const goGroupList = useCallback(() => setScreen({ name: 'group' }), []);
+  const goRoom = useCallback((roomId: string) => setScreen({ name: 'room', roomId }), []);
 
   // 지금 부활전에 나올 수 있는 단어 수. 허브에서 "몇 개가 기다리는지" 보여주는 데 쓴다.
   // 전체 단어장 대상 — 부활전은 특정 단어장이 아니라 "내가 틀린 것 전부"가 자연스럽다.
@@ -344,7 +349,9 @@ export default function App() {
           />
         );
       case 'group':
-        return <GroupPlaceholder />;
+        return <RoomListScreen sync={sync} onEnterRoom={goRoom} />;
+      case 'room':
+        return <RoomScreen roomId={screen.roomId} sync={sync} onBack={goGroupList} />;
       case 'quizHub':
         return (
           <QuizHub
@@ -406,6 +413,8 @@ export default function App() {
     goProfile,
     goQuizHub,
     goSetup,
+    goGroupList,
+    goRoom,
     revivalCount,
     revivedToday,
     startRevival,

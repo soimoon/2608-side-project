@@ -160,6 +160,351 @@ create policy "revival_events_select_own" on revival_events
 create policy "revival_events_insert_own" on revival_events
   for insert with check (user_id = auth.uid());
 
+-- ---------- 단체게임: game_rooms ----------
+-- "방 레코드가 곧 게임 상태다" — 방장이 매 라운드 신호를 쏘는 게 아니라, 이 행 하나
+-- (started_at + 라운드 길이 + 동결된 단어 목록)로부터 모든 클라이언트가 현재 라운드를
+-- 독립적으로 계산한다. 그래야 방장 이탈·새로고침·백그라운드 복귀가 전부 같은 방식으로
+-- 풀린다. status/speed/round_count 등은 Phase 1(로비)부터 이미 정의해 두고, 게임 진행
+-- 자체(started_at 이후 컬럼들 채우기)는 이후 단계에서 붙인다 — 나중에 ALTER를 반복하지
+-- 않기 위해서다.
+create table if not exists game_rooms (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (char_length(btrim(title)) between 1 and 40),
+  host_id uuid not null references auth.users on delete cascade,
+  max_players int not null default 5 check (max_players between 2 and 8),
+  status text not null default 'lobby' check (status in ('lobby', 'playing')),
+  -- 게임 설정. 자유 입력이 아니라 프리셋만 허용한다 — 락스텝에서 제한 시간은 곧 전원의
+  -- 대기 시간이라, 값이 제각각이면 방 목록에서 뭘 고를지 감이 안 온다.
+  speed text not null default 'normal' check (speed in ('fast', 'normal', 'relaxed')),
+  round_count int not null default 20 check (round_count in (10, 20, 30)),
+  -- 방이 게임 종료 후에도 유지되며 여러 판을 치르므로 판 번호가 필요하다.
+  game_no int not null default 0,
+  -- 아래는 게임이 시작되는 순간(start_game)에 서버가 동결하는 값들. 그 사이 speed 같은
+  -- 프리셋을 바꿔도 이미 진행 중인 판은 흔들리지 않는다.
+  started_at timestamptz,
+  finished_at timestamptz,
+  answer_ms int,
+  reveal_ms int,
+  lead_in_ms int,
+  hint_ratio real,
+  words jsonb,
+  mask_seed int,
+  created_at timestamptz not null default now(),
+  last_activity_at timestamptz not null default now()
+);
+
+create index if not exists game_rooms_activity on game_rooms (status, last_activity_at desc);
+
+alter table game_rooms enable row level security;
+
+-- 방 목록이 애초에 공개이므로 select는 전부 상수 true로 연다. 술어 그래프에 자기참조
+-- 간선이 하나도 없어 RLS 재귀(42P17)가 원천 봉쇄된다. 쓰기는 전부 아래 RPC를 통해서만
+-- 이뤄진다(update/delete 정책을 아예 두지 않음 — 정원·방장이전 등 경쟁 조건이 있는
+-- 변경을 클라이언트가 직접 UPDATE로 처리하면 반드시 깨진다).
+create policy "game_rooms_select_all" on game_rooms
+  for select using (true);
+create policy "game_rooms_insert_host" on game_rooms
+  for insert with check (host_id = auth.uid());
+
+-- ---------- 단체게임: room_players ----------
+create table if not exists room_players (
+  room_id uuid not null references game_rooms on delete cascade,
+  user_id uuid not null references auth.users on delete cascade,
+  -- profiles.display_name을 조인하지 않고 스냅샷으로 들고 있는다 — profiles_select_own이
+  -- 남의 프로필 조회를 막고 있어(schema.sql 위쪽 참고) 조인이 애초에 안 되고, 스냅샷이면
+  -- 방을 나간 뒤에도 지난 판 결과에 이름이 그대로 남는 부수 이득도 있다.
+  display_name text not null,
+  -- 참가자가 이번 판에 낼 단어장. 'mine'|'official', null이면 아직 미선택.
+  source_kind text check (source_kind in ('mine', 'official')),
+  source_label text,
+  joined_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  primary key (room_id, user_id)
+);
+
+create index if not exists room_players_fresh on room_players (room_id, last_seen_at desc);
+
+alter table room_players enable row level security;
+
+create policy "room_players_select_all" on room_players
+  for select using (true);
+create policy "room_players_update_own" on room_players
+  for update using (user_id = auth.uid());
+create policy "room_players_delete_own" on room_players
+  for delete using (user_id = auth.uid());
+-- insert 정책 없음 — 정원 검사가 필요해 join_room RPC로만 들어온다.
+
+-- ---------- 단체게임: room_messages ----------
+-- 로비 채팅. 게임이 끝나도 방이 폭파되지 않고 이 메시지들이 그대로 남아야 하므로
+-- (요구사항: 방 유지) Broadcast가 아니라 실제 테이블이다.
+create table if not exists room_messages (
+  id bigserial primary key,
+  room_id uuid not null references game_rooms on delete cascade,
+  user_id uuid not null references auth.users on delete cascade,
+  display_name text not null,
+  body text not null check (char_length(body) between 1 and 300),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists room_messages_room on room_messages (room_id, id desc);
+
+alter table room_messages enable row level security;
+
+create policy "room_messages_select_all" on room_messages
+  for select using (true);
+-- exists(...)는 room_players를 들여다보지만 room_players의 정책이 다시 room_messages를
+-- 보지 않으므로 재귀가 아니다. 방에 들어오지도 않은 사람이 아무 방에나 쓰는 것만 막는다.
+create policy "room_messages_insert_member" on room_messages
+  for insert with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from room_players p
+      where p.room_id = room_messages.room_id and p.user_id = auth.uid()
+    )
+  );
+
+-- 메시지가 오가는 것도 "활동"이므로 방 청소(sweep_rooms)가 대화 중인 방을 지우지 않게
+-- last_activity_at을 같이 갱신한다.
+create or replace function bump_room_activity() returns trigger
+language plpgsql as $$
+begin
+  update game_rooms set last_activity_at = now() where id = new.room_id;
+  return new;
+end;
+$$;
+
+drop trigger if exists room_messages_bump_activity on room_messages;
+create trigger room_messages_bump_activity
+  after insert on room_messages
+  for each row execute function bump_room_activity();
+
+-- Realtime publication에 추가 — 이미 들어 있으면 조용히 넘어간다(재실행 안전).
+-- 실행 후 Supabase 대시보드 Database → Replication에서 이 3개 테이블이 체크됐는지
+-- 반드시 눈으로 확인할 것. 빼먹으면 "아무 일도 안 일어나는" 증상으로 오래 헤맨다.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'game_rooms'
+  ) then
+    alter publication supabase_realtime add table game_rooms;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'room_players'
+  ) then
+    alter publication supabase_realtime add table room_players;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'room_messages'
+  ) then
+    alter publication supabase_realtime add table room_messages;
+  end if;
+end $$;
+
+-- ---------- 단체게임: RPC ----------
+-- 전부 security definer + search_path 고정 + authenticated 전용(anon 차단). RLS의
+-- "select는 전부 공개, 쓰기는 정책 없음" 조합과 짝을 이뤄, 정원·방장이전 같은 경쟁
+-- 조건이 있는 변경은 반드시 이 함수들을 통해서만, `for update` 잠금 아래 일어난다.
+
+create or replace function server_now_ms() returns bigint
+language sql stable as $$
+  -- now()는 트랜잭션 시작 시각이라 커넥션 풀 상황에서 미세하게 뒤처질 수 있다.
+  -- clock_timestamp()는 실제 호출 시각.
+  select (extract(epoch from clock_timestamp()) * 1000)::bigint;
+$$;
+
+create or replace function sweep_rooms() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  -- list_rooms()를 여는 사람이 곧 청소부다. 여러 명이 동시에 로비를 열어도
+  -- advisory lock으로 실제 청소는 한 번만 실행된다.
+  if not pg_try_advisory_xact_lock(hashtext('sweep_rooms')) then
+    return;
+  end if;
+
+  -- 신선한 참가자가 하나도 없고 2분 이상 조용한 방은 삭제한다(cascade로 하위 전부).
+  delete from game_rooms r
+    where r.last_activity_at < now() - interval '2 minutes'
+      and not exists (
+        select 1 from room_players p
+        where p.room_id = r.id and p.last_seen_at > now() - interval '60 seconds'
+      );
+
+  -- 전원이 창을 닫아 finish_game이 안 불린 방을 복구(다음 단계에서 status='playing'이
+  -- 실제로 쓰이기 시작하면 의미가 생긴다 — 지금 미리 둬서 나중에 손댈 곳이 없게 한다).
+  update game_rooms set status = 'lobby'
+    where status = 'playing' and started_at < now() - interval '1 hour';
+end;
+$$;
+
+create or replace function list_rooms()
+returns table (
+  id uuid, title text, host_id uuid, host_name text, max_players int,
+  player_count int, status text, speed text, round_count int, created_at timestamptz
+)
+language plpgsql security definer set search_path = public as $$
+begin
+  perform sweep_rooms();
+  return query
+    select
+      r.id, r.title, r.host_id,
+      coalesce(
+        (select p.display_name from room_players p where p.room_id = r.id and p.user_id = r.host_id),
+        ''
+      ) as host_name,
+      r.max_players,
+      (
+        select count(*)::int from room_players p
+        where p.room_id = r.id and p.last_seen_at > now() - interval '60 seconds'
+      ) as player_count,
+      r.status, r.speed, r.round_count, r.created_at
+    from game_rooms r
+    order by r.created_at desc
+    limit 100;
+end;
+$$;
+
+create or replace function create_room(p_title text, p_max int, p_speed text, p_round_count int, p_name text)
+returns game_rooms
+language plpgsql security definer set search_path = public as $$
+declare r game_rooms;
+begin
+  if p_max < 2 or p_max > 8 then raise exception 'BAD_MAX'; end if;
+  if p_speed not in ('fast', 'normal', 'relaxed') then raise exception 'BAD_SPEED'; end if;
+  if p_round_count not in (10, 20, 30) then raise exception 'BAD_ROUNDS'; end if;
+  if char_length(btrim(coalesce(p_title, ''))) < 1 then raise exception 'BAD_TITLE'; end if;
+
+  insert into game_rooms (title, host_id, max_players, speed, round_count)
+  values (btrim(p_title), auth.uid(), p_max, p_speed, p_round_count)
+  returning * into r;
+
+  insert into room_players (room_id, user_id, display_name)
+  values (r.id, auth.uid(), coalesce(nullif(btrim(p_name), ''), '플레이어'));
+
+  return r;
+end;
+$$;
+
+create or replace function join_room(p_room_id uuid, p_name text)
+returns game_rooms
+language plpgsql security definer set search_path = public as $$
+declare r game_rooms; already boolean;
+begin
+  -- 이 방을 향한 다른 join/leave와 직렬화한다 — 정원 초과 동시입장을 막는 핵심 한 줄.
+  select * into r from game_rooms where id = p_room_id for update;
+  if r is null then raise exception 'ROOM_NOT_FOUND'; end if;
+
+  select exists(
+    select 1 from room_players where room_id = p_room_id and user_id = auth.uid()
+  ) into already;
+
+  if not already then
+    if (
+      select count(*) from room_players
+      where room_id = p_room_id and last_seen_at > now() - interval '60 seconds'
+    ) >= r.max_players then
+      raise exception 'ROOM_FULL';
+    end if;
+  end if;
+
+  insert into room_players (room_id, user_id, display_name)
+  values (p_room_id, auth.uid(), coalesce(nullif(btrim(p_name), ''), '플레이어'))
+  on conflict (room_id, user_id) do update set last_seen_at = now(), display_name = excluded.display_name;
+
+  update game_rooms set last_activity_at = now() where id = p_room_id;
+  return r;
+end;
+$$;
+
+create or replace function leave_room(p_room_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare r game_rooms; nxt uuid;
+begin
+  select * into r from game_rooms where id = p_room_id for update;
+  if r is null then return; end if;
+
+  delete from room_players where room_id = p_room_id and user_id = auth.uid();
+
+  select user_id into nxt from room_players
+    where room_id = p_room_id and last_seen_at > now() - interval '60 seconds'
+    order by joined_at asc limit 1;
+
+  if nxt is null then
+    delete from game_rooms where id = p_room_id;
+  elsif r.host_id = auth.uid() then
+    update game_rooms set host_id = nxt, last_activity_at = now() where id = p_room_id;
+  end if;
+end;
+$$;
+
+create or replace function kick_player(p_room_id uuid, p_user_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare r game_rooms;
+begin
+  select * into r from game_rooms where id = p_room_id for update;
+  if r is null then raise exception 'ROOM_NOT_FOUND'; end if;
+  if r.host_id is distinct from auth.uid() then raise exception 'NOT_HOST'; end if;
+  if p_user_id = auth.uid() then raise exception 'CANNOT_KICK_SELF'; end if;
+
+  delete from room_players where room_id = p_room_id and user_id = p_user_id;
+end;
+$$;
+
+create or replace function heartbeat(p_room_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update room_players set last_seen_at = now()
+    where room_id = p_room_id and user_id = auth.uid();
+  update game_rooms set last_activity_at = now() where id = p_room_id;
+end;
+$$;
+
+-- 방장이 브라우저를 그냥 닫아 leave_room을 못 부른 경우, 신선하지 않은 방장을 신선한
+-- 참가자에게 넘긴다. 단일 UPDATE라 멱등이고, 여러 클라이언트가 동시에 호출해도 안전하다
+-- — 방 화면에서 방장의 last_seen_at이 60초를 넘으면 클라이언트들이 랜덤 지터 후 이걸 부른다.
+create or replace function reconcile_room(p_room_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update game_rooms set host_id = (
+      select user_id from room_players where room_id = p_room_id
+        and last_seen_at > now() - interval '60 seconds'
+        order by joined_at asc limit 1
+    )
+    where id = p_room_id
+      and not exists (
+        select 1 from room_players where room_id = p_room_id
+          and user_id = game_rooms.host_id and last_seen_at > now() - interval '60 seconds'
+      )
+      and exists (
+        select 1 from room_players where room_id = p_room_id
+          and last_seen_at > now() - interval '60 seconds'
+      );
+end;
+$$;
+
+-- anon 역할은 auth.uid()가 null이 되어 위 함수들의 "= auth.uid()" 비교가 전부 NULL(=false로
+-- 취급)이 되는데, plpgsql의 `if <null> then`은 참으로도 거짓으로도 걸리지 않아 검사를
+-- 조용히 건너뛸 수 있다(예: kick_player의 NOT_HOST 검사). 그래서 검사 로직을 더 두는 대신
+-- 아예 authenticated가 아니면 호출 자체를 막는다.
+revoke execute on function server_now_ms() from public;
+revoke execute on function sweep_rooms() from public;
+revoke execute on function list_rooms() from public;
+revoke execute on function create_room(text, int, text, int, text) from public;
+revoke execute on function join_room(uuid, text) from public;
+revoke execute on function leave_room(uuid) from public;
+revoke execute on function kick_player(uuid, uuid) from public;
+revoke execute on function heartbeat(uuid) from public;
+revoke execute on function reconcile_room(uuid) from public;
+
+grant execute on function server_now_ms() to authenticated;
+grant execute on function sweep_rooms() to authenticated;
+grant execute on function list_rooms() to authenticated;
+grant execute on function create_room(text, int, text, int, text) to authenticated;
+grant execute on function join_room(uuid, text) to authenticated;
+grant execute on function leave_room(uuid) to authenticated;
+grant execute on function kick_player(uuid, uuid) to authenticated;
+grant execute on function heartbeat(uuid) to authenticated;
+grant execute on function reconcile_room(uuid) to authenticated;
+
 -- ---------- 마이그레이션: words.ko  text → text[] ----------
 -- 이미 이 스키마로 프로젝트를 만들어서 words.ko가 text 컬럼인 상태라면, 위 CREATE TABLE은
 -- "if not exists"라 조용히 무시되고 컬럼 타입은 안 바뀐다. 아래를 한 번만 따로 실행한다.

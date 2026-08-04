@@ -1200,6 +1200,102 @@ input[type='radio'] {
   font-size: 0.72rem;
 }
 
+/* ---------- 단체게임: 방 목록 ---------- */
+.room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.room-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+.room-list-item:hover {
+  border-color: var(--accent);
+}
+.room-list-title {
+  font-weight: 700;
+}
+.room-list-meta {
+  font-size: 0.85rem;
+}
+
+/* ---------- 단체게임: 참가자 목록 ---------- */
+.player-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.player-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.player-dot.online {
+  background: var(--ok);
+}
+.player-dot.offline {
+  background: var(--line);
+}
+.player-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+/* ---------- 단체게임: 채팅 ---------- */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+}
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+.chat-msg {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+}
+.chat-msg.mine .chat-msg-name {
+  color: var(--accent);
+}
+.chat-msg-name {
+  font-weight: 700;
+  color: var(--muted);
+}
+.chat-msg-body {
+  overflow-wrap: anywhere;
+}
+.chat-input-row {
+  margin-top: 8px;
+}
+.chat-input-row input {
+  flex: 1;
+}
+
 /* ---------- 반응형 ---------- */
 @media (max-width: 560px) {
   .stat-grid,

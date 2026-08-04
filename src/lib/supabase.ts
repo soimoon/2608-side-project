@@ -13,5 +13,7 @@ export const isCloudConfigured = Boolean(url && anonKey);
 export const supabase: SupabaseClient | null = isCloudConfigured
   ? createClient(url as string, anonKey as string, {
       auth: { persistSession: true, autoRefreshToken: true },
+      // 단체게임 방의 이모지 리액션이 기본값(초당 10건)을 쉽게 넘는다(5명이 연타하면).
+      realtime: { params: { eventsPerSecond: 20 } },
     })
   : null;
