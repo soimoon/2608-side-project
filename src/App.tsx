@@ -1,28 +1,51 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Attempt, DB, QuizSettings, SessionResult, Theme, Word } from './types';
+import type { Attempt, ClaimKind, DB, QuizSettings, SessionResult, Theme, Word } from './types';
 import { activeWords, loadDB, newId, saveDB } from './lib/storage';
 import { useCloudSync } from './lib/useCloudSync';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
-import { pullTheme, pushTheme } from './lib/sync';
+import { pullDailyClaims, pullTheme, pushDailyClaim, pushTheme } from './lib/sync';
+import { claimKey, kstDateKey } from './lib/attendance';
 import { allDeckNames } from './lib/select';
-import Home from './components/Home';
+import BottomNav, { type Tab } from './components/BottomNav';
+import ProfileScreen from './components/ProfileScreen';
+import WordsHub from './components/WordsHub';
 import WordManager from './components/WordManager';
 import StudyList from './components/StudyList';
+import GroupPlaceholder from './components/GroupPlaceholder';
 import SetupScreen from './components/SetupScreen';
 import QuizScreen from './components/QuizScreen';
 import ResultScreen from './components/ResultScreen';
 
 type Screen =
-  | { name: 'home' }
+  | { name: 'profile' }
+  | { name: 'wordsHub' }
   | { name: 'words' }
   | { name: 'study' }
+  | { name: 'group' }
   | { name: 'setup' }
   | { name: 'quiz'; words: Word[]; settings: QuizSettings }
   | { name: 'result'; session: SessionResult };
 
+function tabOf(name: Screen['name']): Tab {
+  switch (name) {
+    case 'wordsHub':
+    case 'words':
+    case 'study':
+      return 'words';
+    case 'setup':
+    case 'quiz':
+    case 'result':
+      return 'quiz';
+    case 'group':
+      return 'group';
+    case 'profile':
+      return 'profile';
+  }
+}
+
 export default function App() {
   const [db, setDB] = useState<DB>(() => loadDB());
-  const [screen, setScreen] = useState<Screen>({ name: 'home' });
+  const [screen, setScreen] = useState<Screen>({ name: 'profile' });
 
   useEffect(() => {
     saveDB(db);
@@ -66,6 +89,30 @@ export default function App() {
       if (remote && remote !== dbRef.current.theme) setDB((d) => ({ ...d, theme: remote }));
     });
   }, [sync.session]);
+
+  // 로그인 직후 한 번, 계정에 저장된 출석·미션 수령 기록을 가져와 로컬과 합친다.
+  // append-only라 words처럼 복잡한 병합 로직 없이 합집합이면 충분하다.
+  const claimsPulledFor = useRef<string | null>(null);
+  useEffect(() => {
+    const userId = sync.session?.user.id;
+    if (!userId || claimsPulledFor.current === userId) return;
+    claimsPulledFor.current = userId;
+    void pullDailyClaims(userId).then((remote) => {
+      if (remote.length === 0) return;
+      setDB((d) => ({ ...d, dailyClaims: [...new Set([...d.dailyClaims, ...remote])] }));
+    });
+  }, [sync.session]);
+
+  /** 출석·미션 보상 수령. 로컬에 즉시 반영하고, 로그인 상태면 계정에도 올린다. */
+  const claim = useCallback(
+    (kind: ClaimKind) => {
+      const today = kstDateKey(Date.now());
+      const key = claimKey(today, kind);
+      setDB((d) => (d.dailyClaims.includes(key) ? d : { ...d, dailyClaims: [...d.dailyClaims, key] }));
+      if (sync.session) void pushDailyClaim(sync.session.user.id, today, kind);
+    },
+    [sync.session],
+  );
 
   const setWords = useCallback((updater: (prev: Word[]) => Word[]) => {
     setDB((d) => ({ ...d, words: updater(d.words) }));
@@ -116,7 +163,7 @@ export default function App() {
     [cachePronunciations],
   );
 
-  /** 퀴즈 종료: 단어별 통계를 갱신하고 세션 기록을 남긴다. */
+  /** 퀴즈 종료: 단어별 통계를 갱신하고 세션 기록·오늘의 미션 진행도를 남긴다. */
   const finishQuiz = useCallback(
     (attempts: Attempt[], settings: QuizSettings, startedAt: number) => {
       const finishedAt = Date.now();
@@ -131,11 +178,16 @@ export default function App() {
 
       setDB((d) => {
         const byId = new Map(d.words.map((w) => [w.id, { ...w, stats: { ...w.stats } }]));
+        // 이 함수 호출 안에서만 유효한 지역 변수 — setDB 업데이터가 두 번 불려도
+        // (예: StrictMode) 중복 집계되지 않는다.
+        let revivedNow = 0;
         for (const a of attempts) {
           // 재출제(복습) 시도는 통계를 두 번 깎지 않도록 첫 시도만 반영한다.
           if (a.requeued) continue;
           const w = byId.get(a.wordId);
           if (!w) continue;
+          // "오답 부활전" 미션: 한 번이라도 틀렸던(wrong>0) 단어를 오늘 처음 다시 맞혔는지.
+          if (w.stats.wrong > 0 && a.verdict === 'correct') revivedNow++;
           w.stats.seen += 1;
           w.stats.lastSeenAt = finishedAt;
           w.updatedAt = finishedAt;
@@ -147,10 +199,15 @@ export default function App() {
             w.stats.streak = 0;
           }
         }
+
+        const today = kstDateKey(finishedAt);
+        const prevRevived = d.dailyMission.date === today ? d.dailyMission.revived : 0;
+
         return {
           ...d,
           words: d.words.map((w) => byId.get(w.id) ?? w),
           history: [...d.history, session].slice(-500),
+          dailyMission: { date: today, revived: prevRevived + revivedNow },
         };
       });
 
@@ -159,21 +216,49 @@ export default function App() {
     [],
   );
 
-  const home = useCallback(() => setScreen({ name: 'home' }), []);
+  const navigate = useCallback((tab: Tab) => {
+    switch (tab) {
+      case 'words':
+        setScreen({ name: 'wordsHub' });
+        return;
+      case 'quiz':
+        setScreen({ name: 'setup' });
+        return;
+      case 'group':
+        setScreen({ name: 'group' });
+        return;
+      case 'profile':
+        setScreen({ name: 'profile' });
+        return;
+    }
+  }, []);
+
+  const goWordsHub = useCallback(() => setScreen({ name: 'wordsHub' }), []);
+  const goProfile = useCallback(() => setScreen({ name: 'profile' }), []);
+  const goSetup = useCallback(() => setScreen({ name: 'setup' }), []);
 
   const body = useMemo(() => {
     switch (screen.name) {
-      case 'home':
+      case 'profile':
         return (
-          <Home
-            db={db}
+          <ProfileScreen
             words={words}
+            history={db.history}
             sync={sync}
             theme={db.theme}
             onThemeChange={setTheme}
-            onManageWords={() => setScreen({ name: 'words' })}
+            dailyMission={db.dailyMission}
+            dailyClaims={db.dailyClaims}
+            onClaim={claim}
+            onGoWords={goWordsHub}
+          />
+        );
+      case 'wordsHub':
+        return (
+          <WordsHub
+            wordCount={words.length}
             onStudy={() => setScreen({ name: 'study' })}
-            onStart={() => setScreen({ name: 'setup' })}
+            onManage={() => setScreen({ name: 'words' })}
           />
         );
       case 'study':
@@ -183,7 +268,7 @@ export default function App() {
             decks={decks}
             pronunciations={db.pronunciations}
             onFetchPronunciations={cachePronunciations}
-            onBack={home}
+            onBack={goWordsHub}
           />
         );
       case 'words':
@@ -196,9 +281,11 @@ export default function App() {
             onRemoveDeckName={removeDeckName}
             pronunciations={db.pronunciations}
             onFetchPronunciations={cachePronunciations}
-            onBack={home}
+            onBack={goWordsHub}
           />
         );
+      case 'group':
+        return <GroupPlaceholder />;
       case 'setup':
         return (
           <SetupScreen
@@ -207,7 +294,7 @@ export default function App() {
             settings={db.settings}
             onSettingsChange={setSettings}
             onStart={startQuiz}
-            onBack={home}
+            onBack={goProfile}
           />
         );
       case 'quiz':
@@ -217,7 +304,7 @@ export default function App() {
             settings={screen.settings}
             pronunciations={db.pronunciations}
             onFinish={finishQuiz}
-            onAbort={home}
+            onAbort={goSetup}
           />
         );
       case 'result':
@@ -227,7 +314,7 @@ export default function App() {
             allWords={words}
             pronunciations={db.pronunciations}
             onRetryWrong={startQuiz}
-            onHome={home}
+            onHome={goProfile}
           />
         );
     }
@@ -238,6 +325,7 @@ export default function App() {
     decks,
     sync,
     setTheme,
+    claim,
     setWords,
     createDeck,
     removeDeckName,
@@ -245,8 +333,15 @@ export default function App() {
     startQuiz,
     finishQuiz,
     cachePronunciations,
-    home,
+    goWordsHub,
+    goProfile,
+    goSetup,
   ]);
 
-  return <div className="app">{body}</div>;
+  return (
+    <div className="app">
+      {body}
+      {screen.name !== 'quiz' && <BottomNav active={tabOf(screen.name)} onNavigate={navigate} />}
+    </div>
+  );
 }

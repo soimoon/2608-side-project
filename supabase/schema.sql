@@ -114,6 +114,24 @@ create policy "pronunciations_select_all" on pronunciations
 -- insert/update 정책을 두지 않는다: service role(Edge Function)만 쓸 수 있어야 하고,
 -- service role은 RLS를 우회하므로 별도 정책이 필요 없다.
 
+-- ---------- daily_claims ----------
+-- 출석·미션 보상을 "받았음" 표시만 한다. kind를 늘리면 미션이 늘어도 테이블 구조는
+-- 그대로다. date는 KST(한국시간) 기준 — 클라이언트가 UTC+9로 고정 계산해서 보낸다.
+create table if not exists daily_claims (
+  user_id uuid not null references auth.users on delete cascade,
+  date date not null,
+  kind text not null,
+  claimed_at timestamptz not null default now(),
+  primary key (user_id, date, kind)
+);
+
+alter table daily_claims enable row level security;
+
+create policy "daily_claims_select_own" on daily_claims
+  for select using (user_id = auth.uid());
+create policy "daily_claims_insert_own" on daily_claims
+  for insert with check (user_id = auth.uid());
+
 -- ---------- 마이그레이션: words.ko  text → text[] ----------
 -- 이미 이 스키마로 프로젝트를 만들어서 words.ko가 text 컬럼인 상태라면, 위 CREATE TABLE은
 -- "if not exists"라 조용히 무시되고 컬럼 타입은 안 바뀐다. 아래를 한 번만 따로 실행한다.

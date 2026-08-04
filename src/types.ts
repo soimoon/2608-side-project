@@ -123,8 +123,11 @@ export interface SyncCursor {
   userId?: string;
 }
 
+/** daily_claims.kind와 1:1로 대응. 새 미션이 생기면 여기에 값만 추가하면 된다. */
+export type ClaimKind = 'attendance' | 'mission_revive';
+
 export interface DB {
-  version: 5;
+  version: 6;
   words: Word[];
   settings: QuizSettings;
   history: SessionResult[];
@@ -144,4 +147,17 @@ export interface DB {
    * 테마가 그대로 적용된다.
    */
   theme: Theme;
+  /**
+   * 오늘(KST) 안에 "예전에 틀렸다가 오늘 처음 다시 맞힌" 단어 수. 날짜가 바뀌면
+   * 0으로 리셋된다. 세션 기록 자체는 동기화하지 않으므로, 하루 중 기기를 바꾸면
+   * 이 진행률은 새 기기에서 0부터 다시 쌓인다 — 출석·배지(전부 words/dailyClaims
+   * 기반)와 달리 미션 진행률만 기기 로컬이라는 뜻이다.
+   */
+  dailyMission: { date: string; revived: number };
+  /**
+   * "YYYY-MM-DD:kind" 문자열 목록. 출석·미션 보상을 받은 날을 기록한다.
+   * append-only라 기기 간에는 그냥 합집합으로 병합하면 된다. 로그인 상태면
+   * 계정(daily_claims 테이블)에도 올라간다.
+   */
+  dailyClaims: string[];
 }

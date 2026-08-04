@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { isTheme } from './storage';
-import type { Theme, Word } from '../types';
+import { claimKey } from './attendance';
+import type { ClaimKind, Theme, Word } from '../types';
 
 /**
  * localStorage가 항상 정본이고, 이 파일은 그 위에 얹는 동기화 계층이다.
@@ -212,6 +213,47 @@ export async function pushTheme(userId: string, theme: Theme): Promise<void> {
   if (!supabase) return;
   try {
     await supabase.from('profiles').update({ theme }).eq('id', userId);
+  } catch {
+    /* no-op */
+  }
+}
+
+interface DailyClaimRow {
+  date: string;
+  kind: string;
+}
+
+/**
+ * 계정에 저장된 출석·미션 보상 수령 기록을 전부 가져온다. 로그인 직후 한 번 불러
+ * 로컬 dailyClaims와 합집합으로 합친다(둘 다 append-only라 병합이 단순하다).
+ * 실패하면 빈 배열 — 로컬 기록은 그대로 유지된다.
+ */
+export async function pullDailyClaims(userId: string): Promise<string[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('daily_claims')
+      .select('date, kind')
+      .eq('user_id', userId);
+    if (error || !data) return [];
+    return (data as DailyClaimRow[]).map((r) => claimKey(r.date, r.kind as ClaimKind));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 출석·미션 보상을 받았다고 계정에 기록한다. (user_id, date, kind)가 기본키라
+ * 같은 걸 두 번 보내도 안전하다(중복 삽입 대신 그냥 실패하고 무시된다).
+ * 실패해도 조용히 넘어간다 — 로컬에는 이미 반영돼 있으므로 다음 로그인 때 다시 시도된다.
+ */
+export async function pushDailyClaim(userId: string, date: string, kind: ClaimKind): Promise<void> {
+  if (!supabase) return;
+  try {
+    await supabase.from('daily_claims').upsert(
+      { user_id: userId, date, kind },
+      { onConflict: 'user_id,date,kind', ignoreDuplicates: true },
+    );
   } catch {
     /* no-op */
   }

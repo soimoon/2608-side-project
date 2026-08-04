@@ -1,7 +1,8 @@
 import { THEMES, type DB, type QuizSettings, type Theme, type Word } from '../types';
 
-const KEY = 'voca-quiz/v5';
-/** v5 이전 데이터. 있으면 1회 마이그레이션하고, 원본은 롤백 대비로 남겨 둔다. */
+const KEY = 'voca-quiz/v6';
+/** v6 이전 데이터. 있으면 1회 마이그레이션하고, 원본은 롤백 대비로 남겨 둔다. */
+const LEGACY_V5_KEY = 'voca-quiz/v5';
 const LEGACY_V4_KEY = 'voca-quiz/v4';
 const LEGACY_V3_KEY = 'voca-quiz/v3';
 const LEGACY_V2_KEY = 'voca-quiz/v2';
@@ -21,6 +22,10 @@ export const DEFAULT_SETTINGS: QuizSettings = {
   autoPlayAudio: true,
 };
 
+function defaultDailyMission(): DB['dailyMission'] {
+  return { date: '', revived: 0 };
+}
+
 /** 알 수 없는 값(구버전 데이터, 미래 버전이 내려보낸 값 등)이면 기본 테마로. */
 export function isTheme(value: unknown): value is Theme {
   return typeof value === 'string' && (THEMES as readonly string[]).includes(value);
@@ -28,7 +33,7 @@ export function isTheme(value: unknown): value is Theme {
 
 function emptyDB(): DB {
   return {
-    version: 5,
+    version: 6,
     words: [],
     settings: { ...DEFAULT_SETTINGS },
     history: [],
@@ -36,6 +41,8 @@ function emptyDB(): DB {
     pronunciations: {},
     decks: [],
     theme: DEFAULT_THEME,
+    dailyMission: defaultDailyMission(),
+    dailyClaims: [],
   };
 }
 
@@ -86,13 +93,13 @@ function normalizeLegacyWord(w: Record<string, unknown>): Word | null {
   };
 }
 
-/** v1·v2(ko가 문자열이던 시절) 데이터를 v5 모양으로 채워 넣는다. 두 버전 모두 구조가 같아 하나로 처리한다. */
+/** v1·v2(ko가 문자열이던 시절) 데이터를 v6 모양으로 채워 넣는다. 두 버전 모두 구조가 같아 하나로 처리한다. */
 function migrateLegacy(parsed: Record<string, unknown>): DB {
   const rawWords = Array.isArray(parsed.words) ? (parsed.words as Record<string, unknown>[]) : [];
   const words = rawWords.map(normalizeLegacyWord).filter((w): w is Word => w !== null);
 
   return {
-    version: 5,
+    version: 6,
     words,
     settings: { ...DEFAULT_SETTINGS, ...((parsed.settings as Partial<QuizSettings>) ?? {}) },
     history: Array.isArray(parsed.history) ? (parsed.history as DB['history']) : [],
@@ -100,13 +107,15 @@ function migrateLegacy(parsed: Record<string, unknown>): DB {
     pronunciations: {},
     decks: [],
     theme: DEFAULT_THEME,
+    dailyMission: defaultDailyMission(),
+    dailyClaims: [],
   };
 }
 
-/** v3(ko는 이미 배열, decks·theme만 없던 시절) → v5. */
+/** v3(ko는 이미 배열, decks·theme만 없던 시절) → v6. */
 function migrateV3(parsed: Record<string, unknown>): DB {
   return {
-    version: 5,
+    version: 6,
     words: Array.isArray(parsed.words)
       ? (parsed.words as Word[]).map((w) => ({ ...w, ko: toKoArray(w.ko) }))
       : [],
@@ -116,13 +125,15 @@ function migrateV3(parsed: Record<string, unknown>): DB {
     pronunciations: (parsed.pronunciations as DB['pronunciations']) ?? {},
     decks: [],
     theme: DEFAULT_THEME,
+    dailyMission: defaultDailyMission(),
+    dailyClaims: [],
   };
 }
 
-/** v4(decks까지는 있고 theme만 없던 시절) → v5. */
+/** v4(decks까지는 있고 theme만 없던 시절) → v6. */
 function migrateV4(parsed: Record<string, unknown>): DB {
   return {
-    version: 5,
+    version: 6,
     words: Array.isArray(parsed.words)
       ? (parsed.words as Word[]).map((w) => ({ ...w, ko: toKoArray(w.ko) }))
       : [],
@@ -132,6 +143,26 @@ function migrateV4(parsed: Record<string, unknown>): DB {
     pronunciations: (parsed.pronunciations as DB['pronunciations']) ?? {},
     decks: Array.isArray(parsed.decks) ? (parsed.decks as string[]) : [],
     theme: DEFAULT_THEME,
+    dailyMission: defaultDailyMission(),
+    dailyClaims: [],
+  };
+}
+
+/** v5(theme까지는 있고 출석/미션만 없던 시절) → v6. */
+function migrateV5(parsed: Record<string, unknown>): DB {
+  return {
+    version: 6,
+    words: Array.isArray(parsed.words)
+      ? (parsed.words as Word[]).map((w) => ({ ...w, ko: toKoArray(w.ko) }))
+      : [],
+    settings: { ...DEFAULT_SETTINGS, ...((parsed.settings as Partial<QuizSettings>) ?? {}) },
+    history: Array.isArray(parsed.history) ? (parsed.history as DB['history']) : [],
+    sync: (parsed.sync as DB['sync']) ?? { lastPulledAt: 0, lastPushedAt: 0 },
+    pronunciations: (parsed.pronunciations as DB['pronunciations']) ?? {},
+    decks: Array.isArray(parsed.decks) ? (parsed.decks as string[]) : [],
+    theme: isTheme(parsed.theme) ? parsed.theme : DEFAULT_THEME,
+    dailyMission: defaultDailyMission(),
+    dailyClaims: [],
   };
 }
 
@@ -141,7 +172,7 @@ export function loadDB(): DB {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<DB>;
       return {
-        version: 5,
+        version: 6,
         // 방어적으로 한 번 더 배열화한다 — 수동으로 손댄 localStorage 등 이상값 대비.
         words: Array.isArray(parsed.words)
           ? parsed.words.map((w) => ({ ...w, ko: toKoArray(w.ko) }))
@@ -152,10 +183,21 @@ export function loadDB(): DB {
         pronunciations: parsed.pronunciations ?? {},
         decks: Array.isArray(parsed.decks) ? parsed.decks : [],
         theme: isTheme(parsed.theme) ? parsed.theme : DEFAULT_THEME,
+        dailyMission:
+          parsed.dailyMission && typeof parsed.dailyMission.date === 'string'
+            ? parsed.dailyMission
+            : defaultDailyMission(),
+        dailyClaims: Array.isArray(parsed.dailyClaims) ? parsed.dailyClaims : [],
       };
     }
 
-    // v5 키가 없으면 구버전이 있는지 순서대로 확인해 단어를 잃지 않고 옮긴다.
+    // v6 키가 없으면 구버전이 있는지 순서대로 확인해 단어를 잃지 않고 옮긴다.
+    const v5Raw = localStorage.getItem(LEGACY_V5_KEY);
+    if (v5Raw) {
+      const migrated = migrateV5(JSON.parse(v5Raw) as Record<string, unknown>);
+      saveDB(migrated);
+      return migrated;
+    }
     const v4Raw = localStorage.getItem(LEGACY_V4_KEY);
     if (v4Raw) {
       const migrated = migrateV4(JSON.parse(v4Raw) as Record<string, unknown>);
@@ -172,7 +214,7 @@ export function loadDB(): DB {
       const legacyRaw = localStorage.getItem(legacyKey);
       if (legacyRaw) {
         const migrated = migrateLegacy(JSON.parse(legacyRaw) as Record<string, unknown>);
-        saveDB(migrated); // 바로 v5로 저장해, 다음부터는 이 분기를 타지 않는다.
+        saveDB(migrated); // 바로 v6로 저장해, 다음부터는 이 분기를 타지 않는다.
         return migrated;
       }
     }
