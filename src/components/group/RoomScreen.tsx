@@ -88,7 +88,7 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
     return (
       <div className="screen">
         <div className="empty-cta">
-          <p>방장이 회원님을 내보냈습니다.</p>
+          <p>방장이 회원님을 강제퇴장시켰습니다.</p>
           <button className="btn primary" onClick={onBack}>
             목록으로
           </button>

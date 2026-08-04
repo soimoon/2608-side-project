@@ -323,9 +323,9 @@ alter table nickname_word_counters enable row level security;
 -- select/insert/update 정책을 두지 않는다 — next_nickname() RPC(security definer)만
 -- 건드릴 수 있으면 충분하고, 클라이언트가 카운터를 직접 조작할 이유가 없다.
 
--- ---------- 단체게임: room_kicks (강퇴 쿨타임) ----------
--- 강퇴된 사람이 바로 재입장하지 못하게 10분간 막는다. (room_id, user_id) 기본키라
--- 같은 사람을 다시 강퇴해도 kicked_at 갱신만 될 뿐 여러 행이 쌓이지 않는다.
+-- ---------- 단체게임: room_kicks (강제퇴장 쿨타임) ----------
+-- 강제퇴장된 사람이 바로 재입장하지 못하게 10분간 막는다. (room_id, user_id) 기본키라
+-- 같은 사람을 다시 강제퇴장해도 kicked_at 갱신만 될 뿐 여러 행이 쌓이지 않는다.
 create table if not exists room_kicks (
   room_id uuid not null references game_rooms on delete cascade,
   user_id uuid not null references auth.users on delete cascade,
@@ -335,7 +335,7 @@ create table if not exists room_kicks (
 
 alter table room_kicks enable row level security;
 -- 이 테이블도 정책을 두지 않는다 — join_room()/kick_player() RPC 안에서만 읽고 쓴다.
--- 클라이언트가 "내가 강퇴당했는지"를 직접 조회할 필요는 join_room의 에러 메시지로
+-- 클라이언트가 "내가 강제퇴장당했는지"를 직접 조회할 필요는 join_room의 에러 메시지로
 -- 충분하다.
 
 -- ---------- 단체게임: RPC ----------
@@ -506,7 +506,7 @@ begin
 
   delete from room_players where room_id = p_room_id and user_id = p_user_id;
 
-  -- 10분 동안 이 방에 재입장을 막는다. 같은 사람을 다시 강퇴해도 kicked_at만 갱신될 뿐
+  -- 10분 동안 이 방에 재입장을 막는다. 같은 사람을 다시 강제퇴장해도 kicked_at만 갱신될 뿐
   -- (재쿨타임), 여러 번 쌓이지 않는다.
   insert into room_kicks (room_id, user_id) values (p_room_id, p_user_id)
     on conflict (room_id, user_id) do update set kicked_at = now();

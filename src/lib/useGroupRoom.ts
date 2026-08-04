@@ -26,7 +26,7 @@ export interface UseGroupRoomResult {
   joinError: string | null;
   /** 방이 존재했다가 사라진 경우(전원 퇴장 등). joinError와 달리 한 번은 들어와 있었다. */
   roomGone: boolean;
-  /** 방장이 강퇴한 경우. */
+  /** 방장이 강제퇴장시킨 경우. */
   kickedOut: boolean;
   isHost: boolean;
   send: (body: string) => Promise<void>;
@@ -163,7 +163,7 @@ export function useGroupRoom(
     return () => window.clearTimeout(t);
   }, [roomId, room, players, refetchAll]);
 
-  // 강퇴 판정: 한 번이라도 참가자 목록에서 나를 본 뒤, 더 이상 없으면 강퇴/자진퇴장된 것.
+  // 강제퇴장 판정: 한 번이라도 참가자 목록에서 나를 본 뒤, 더 이상 없으면 강제퇴장/자진퇴장된 것.
   useEffect(() => {
     if (!userId) return;
     if (players.some((p) => p.userId === userId)) everSawSelfRef.current = true;

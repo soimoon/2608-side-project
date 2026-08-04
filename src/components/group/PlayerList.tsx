@@ -9,7 +9,7 @@ interface Props {
   onKick: (userId: string) => void;
 }
 
-/** 방 참가자 목록. 방장은 왕관, 나는 "(나)"로 표시하고, 방장에게만 강퇴 버튼이 보인다. */
+/** 방 참가자 목록. 방장은 왕관, 나는 "(나)"로 표시하고, 방장에게만 강제퇴장 버튼이 보인다. */
 export default function PlayerList({ players, hostId, me, isHost, maxPlayers, onKick }: Props) {
   return (
     <section className="card">
@@ -29,7 +29,7 @@ export default function PlayerList({ players, hostId, me, isHost, maxPlayers, on
               </span>
               {isHost && p.userId !== me && (
                 <button className="btn ghost sm" onClick={() => onKick(p.userId)}>
-                  강퇴
+                  강제퇴장
                 </button>
               )}
             </li>

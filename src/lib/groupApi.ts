@@ -166,7 +166,7 @@ export async function joinRoom(roomId: string, displayName: string): Promise<Api
 function mapJoinError(message?: string): string {
   if (message?.includes('ROOM_FULL')) return '방이 가득 찼습니다.';
   if (message?.includes('ROOM_NOT_FOUND')) return '이미 사라진 방입니다.';
-  if (message?.includes('KICKED_COOLDOWN')) return '강퇴된 방입니다. 잠시 후 다시 시도해 주세요.';
+  if (message?.includes('KICKED_COOLDOWN')) return '강제퇴장된 방입니다. 잠시 후 다시 시도해 주세요.';
   return message ?? '입장하지 못했습니다.';
 }
 
