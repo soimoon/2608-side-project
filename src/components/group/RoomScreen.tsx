@@ -4,6 +4,7 @@ import { useNickname } from '../../lib/useNickname';
 import PlayerList from './PlayerList';
 import ChatPanel from './ChatPanel';
 import NicknameGateModal from './NicknameGateModal';
+import DebugLockstepStrip from './DebugLockstepStrip';
 
 interface Props {
   roomId: string;
@@ -131,6 +132,9 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
       )}
 
       <ChatPanel messages={messages} me={userId ?? ''} onSend={send} />
+
+      {/* Phase 2 검증용. 진짜 게임 스케줄이 붙으면(Phase 3) 지운다. */}
+      <DebugLockstepStrip />
     </div>
   );
 }
