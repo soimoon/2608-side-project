@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Attempt, SessionResult, Verdict, Word, WordStats } from '../types';
-import { lastWrongAt, pickRevivalWords, revivalPool } from './select';
+import { byOrder, lastWrongAt, pickRevivalWords, reorderWords, revivalPool, sortKey } from './select';
 
 function word(id: string, stats: Partial<WordStats>, deck = '기본'): Word {
   return {
@@ -12,6 +12,19 @@ function word(id: string, stats: Partial<WordStats>, deck = '기본'): Word {
     updatedAt: 0,
     stats: { seen: 0, correct: 0, wrong: 0, streak: 0, ...stats },
   };
+}
+
+/** 정렬용 단어. createdAt만 다르고 order는 없다(= 순서를 한 번도 안 바꾼 상태). */
+function ordered(id: string, createdAt: number, order?: number): Word {
+  return { ...word(id, {}), createdAt, order };
+}
+
+/** changes를 적용한 뒤의 실제 표시 순서. */
+function applied(list: Word[], changes: Map<string, number>): string[] {
+  return list
+    .map((w) => (changes.has(w.id) ? { ...w, order: changes.get(w.id) } : w))
+    .sort(byOrder)
+    .map((w) => w.id);
 }
 
 function session(finishedAt: number, results: [string, Verdict][]): SessionResult {
@@ -60,6 +73,59 @@ describe('revivalPool', () => {
     ];
     expect(ids(revivalPool(words, ['Day1']))).toEqual(['a']);
     expect(ids(revivalPool(words, []))).toEqual(['a', 'b']); // 빈 배열이면 전체
+  });
+});
+
+describe('sortKey / reorderWords', () => {
+  it('order가 없으면 등록 시각이 곧 정렬 키다', () => {
+    expect(sortKey(ordered('a', 500))).toBe(500);
+    expect(sortKey(ordered('a', 500, 12))).toBe(12); // 직접 매긴 값이 우선
+  });
+
+  it('한 칸 위로 옮기면 두 단어의 순서만 뒤바뀐다', () => {
+    const list = [ordered('a', 100), ordered('b', 200), ordered('c', 300)];
+    const changes = reorderWords(list, 2, 1); // c를 b 앞으로
+    expect(applied(list, changes)).toEqual(['a', 'c', 'b']);
+  });
+
+  it('맨 앞·맨 뒤로 옮길 수 있다', () => {
+    const list = [ordered('a', 100), ordered('b', 200), ordered('c', 300)];
+    expect(applied(list, reorderWords(list, 2, 0))).toEqual(['c', 'a', 'b']);
+    expect(applied(list, reorderWords(list, 0, 2))).toEqual(['b', 'c', 'a']);
+  });
+
+  it('보통은 옮긴 단어 하나만 바뀐다 — 동기화에 올라가는 행을 최소로 유지', () => {
+    const list = [ordered('a', 100), ordered('b', 200), ordered('c', 300)];
+    expect(reorderWords(list, 2, 0).size).toBe(1);
+  });
+
+  it('제자리로 옮기거나 범위를 벗어나면 아무것도 바꾸지 않는다', () => {
+    const list = [ordered('a', 100), ordered('b', 200)];
+    expect(reorderWords(list, 1, 1).size).toBe(0);
+    expect(reorderWords(list, 0, 5).size).toBe(0);
+    expect(reorderWords(list, -1, 0).size).toBe(0);
+  });
+
+  it('같은 틈에 반복해 끼워 넣어 간격이 바닥나면 목록 전체를 다시 번호 매긴다', () => {
+    // b와 c 사이가 이미 부동소수점으로 더 못 쪼갤 만큼 좁은 상황.
+    const list = [ordered('a', 100), ordered('b', 200, 200), ordered('c', 300, 200.0000001)];
+    const changes = reorderWords(list, 0, 1); // a를 그 좁은 틈으로
+    expect(changes.size).toBe(3); // 하나만 고쳐서는 해결이 안 되므로 전체 재번호
+    expect(applied(list, changes)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('재번호를 매겨도 원래 값 근처에 머문다 — 다른 단어장과 눈금이 어긋나지 않게', () => {
+    const list = [ordered('a', 100), ordered('b', 200, 200), ordered('c', 300, 200.0000001)];
+    const changes = reorderWords(list, 0, 1);
+    for (const v of changes.values()) expect(v).toBeGreaterThanOrEqual(100);
+  });
+
+  it('순서를 바꾼 단어와 안 바꾼 단어가 한 목록에 섞여도 비교가 성립한다', () => {
+    // order를 createdAt과 같은 눈금(epoch ms)에 올려 둔 덕분에 가능한 성질.
+    const list = [ordered('a', 1000), ordered('b', 2000), ordered('c', 3000)];
+    const changes = reorderWords(list, 2, 0);
+    expect(applied(list, changes)).toEqual(['c', 'a', 'b']);
+    expect(changes.get('c')).toBeLessThan(1000);
   });
 });
 

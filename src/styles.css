@@ -634,6 +634,22 @@ input[type='radio'] {
   padding: 14px 18px;
   border-bottom: 1px solid var(--line);
 }
+/* 편집 모드에서는 순서 조절 버튼이 맨 앞에 한 열 더 붙는다. */
+.study-row.editing {
+  grid-template-columns: auto minmax(96px, 200px) 1fr;
+  gap: 12px;
+}
+.study-reorder {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-self: center;
+}
+.study-reorder .btn {
+  padding: 2px 8px;
+  line-height: 1.2;
+  min-width: 32px;
+}
 .study-row:last-child {
   border-bottom: none;
 }
@@ -678,6 +694,10 @@ input[type='radio'] {
     grid-template-columns: minmax(72px, 120px) 1fr;
     gap: 10px;
     padding: 12px;
+  }
+  .study-row.editing {
+    grid-template-columns: auto minmax(72px, 110px) 1fr;
+    gap: 8px;
   }
   .study-en {
     font-size: 1rem;

@@ -4,6 +4,7 @@ import { lookupCache } from '../lib/pronounce';
 import PronounceButton from './PronounceButton';
 import AddWordForm from './AddWordForm';
 import { DEFAULT_DECK } from '../lib/storage';
+import { byOrder, reorderWords } from '../lib/select';
 
 interface Props {
   words: Word[];
@@ -36,7 +37,8 @@ export default function StudyList({
   const list = useMemo(() => {
     const filtered = filterDeck ? words.filter((w) => w.deck === filterDeck) : words;
     // 등록한 순서(원서의 앞뒤 순서와 보통 일치)대로 — 알파벳순으로 섞으면 책 넘기듯 보기 어렵다.
-    return filtered.slice().sort((a, b) => a.createdAt - b.createdAt);
+    // 직접 순서를 바꾼 단어가 있으면 그 순서를 따른다. 퀴즈의 "등록 순서" 전략과 같은 비교자다.
+    return filtered.slice().sort(byOrder);
   }, [words, filterDeck]);
 
   // 화면을 열거나 단어장을 바꿀 때마다 조용히 채운다 — 버튼을 눌러야만 발음이
@@ -48,6 +50,19 @@ export default function StudyList({
   const existing = useMemo(() => new Set(words.map((w) => w.en.toLowerCase())), [words]);
   // "전체 단어장" 필터일 땐 넣을 단어장이 없으니 기본 단어장으로 떨어진다.
   const addDeck = filterDeck || DEFAULT_DECK;
+
+  /** 화면에 보이는 순서에서 from번째를 to번째로 옮긴다. 보통 한 단어의 order만 바뀐다. */
+  function move(from: number, to: number) {
+    const changes = reorderWords(list, from, to);
+    if (changes.size === 0) return;
+    const now = Date.now();
+    setWords((prev) =>
+      prev.map((w) => {
+        const next = changes.get(w.id);
+        return next === undefined ? w : { ...w, order: next, updatedAt: now };
+      }),
+    );
+  }
 
   return (
     <div className="screen">
@@ -81,7 +96,9 @@ export default function StudyList({
           <p className="muted">
             {filterDeck
               ? `"${filterDeck}" 단어장에 바로 추가됩니다.`
-              : '단어장을 고르지 않으면 기본 단어장에 추가됩니다.'}
+              : '단어장을 고르지 않으면 기본 단어장에 추가됩니다.'}{' '}
+            아래 목록의 ↑↓ 버튼으로 순서를 바꿀 수 있고, 그 순서는 퀴즈의 "등록 순서" 출제에도
+            그대로 쓰입니다.
           </p>
           {notice && (
             <p className="notice-bar" role="status">
@@ -104,8 +121,28 @@ export default function StudyList({
         <p className="muted">표시할 단어가 없습니다.</p>
       ) : (
         <div className="study-list">
-          {list.map((w) => (
-            <div key={w.id} className="study-row">
+          {list.map((w, i) => (
+            <div key={w.id} className={`study-row${editMode ? ' editing' : ''}`}>
+              {editMode && (
+                <div className="study-reorder">
+                  <button
+                    className="btn ghost sm"
+                    disabled={i === 0}
+                    aria-label={`${w.en}을(를) 위로`}
+                    onClick={() => move(i, i - 1)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    className="btn ghost sm"
+                    disabled={i === list.length - 1}
+                    aria-label={`${w.en}을(를) 아래로`}
+                    onClick={() => move(i, i + 1)}
+                  >
+                    ↓
+                  </button>
+                </div>
+              )}
               <div className="study-row-en">
                 <span className="study-en">{w.en}</span>
                 <PronounceButton pron={lookupCache(w.en, pronunciations)} size="sm" />

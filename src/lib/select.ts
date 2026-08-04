@@ -45,6 +45,56 @@ function weightedSample(words: Word[], n: number, now: number): Word[] {
   return picked;
 }
 
+/** 순서를 직접 바꾼 적이 없으면 등록 시각이 곧 정렬 키다. Word.order 주석 참고. */
+export function sortKey(w: Word): number {
+  return w.order ?? w.createdAt;
+}
+
+/** "등록 순서" 정렬 비교자. 목록 화면과 출제 전략이 같은 순서를 보도록 공유한다. */
+export function byOrder(a: Word, b: Word): number {
+  return sortKey(a) - sortKey(b);
+}
+
+/** 맨 앞/맨 뒤로 보낼 때 이웃과 벌려 둘 간격. */
+const ORDER_GAP = 1000;
+/** 이웃 사이가 이보다 좁으면 중간값이 부동소수점에서 이웃과 구별되지 않을 수 있다. */
+const MIN_GAP = 1e-3;
+
+/**
+ * 이미 정렬된 list에서 from번째 단어를 to번째 자리로 옮길 때, 새로 부여할
+ * order 값을 {단어 id → 값}으로 돌려준다. 보통 옮긴 단어 하나만 바뀌므로
+ * 동기화에 올라가는 행도 하나다.
+ *
+ * 같은 틈에 반복해서 끼워 넣어 이웃 간격이 더 못 쪼갤 만큼 좁아지면, 그때만
+ * 목록 전체를 다시 번호 매긴다. 이때도 원래 값 근처(base)에서 시작해 다른
+ * 단어장의 단어들과 눈금이 어긋나지 않게 한다.
+ */
+export function reorderWords(list: Word[], from: number, to: number): Map<string, number> {
+  const result = new Map<string, number>();
+  if (from === to) return result;
+  if (from < 0 || to < 0 || from >= list.length || to >= list.length) return result;
+
+  const moved = list[from];
+  const rest = list.filter((_, i) => i !== from);
+  const prev = rest[to - 1];
+  const next = rest[to];
+
+  if (prev && next && sortKey(next) - sortKey(prev) < MIN_GAP) {
+    const base = Math.min(...list.map(sortKey));
+    const reordered = [...rest.slice(0, to), moved, ...rest.slice(to)];
+    reordered.forEach((w, i) => result.set(w.id, base + i * ORDER_GAP));
+    return result;
+  }
+
+  let value: number;
+  if (!prev) value = sortKey(next) - ORDER_GAP; // 맨 앞으로
+  else if (!next) value = sortKey(prev) + ORDER_GAP; // 맨 뒤로
+  else value = (sortKey(prev) + sortKey(next)) / 2; // 두 단어 사이로
+
+  result.set(moved.id, value);
+  return result;
+}
+
 function shuffle<T>(arr: T[]): T[] {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
@@ -70,7 +120,8 @@ export function pickWords(
 
   switch (strategy) {
     case 'order':
-      return candidates.slice(0, n);
+      // 단어장 화면에서 보이는 순서와 정확히 같아야 한다 — 직접 바꾼 순서가 있으면 그것을 따른다.
+      return candidates.slice().sort(byOrder).slice(0, n);
     case 'random':
       return shuffle(candidates).slice(0, n);
     case 'weak':

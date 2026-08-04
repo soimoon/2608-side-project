@@ -11,9 +11,19 @@ const PRESETS: { label: string; ratio: number; hint: string }[] = [
 ];
 
 const STRATEGIES: { value: Strategy; label: string; desc: string }[] = [
-  { value: 'weak', label: '취약 단어 우선', desc: '자주 틀리거나 오래 안 본 단어를 더 자주 출제' },
+  {
+    value: 'weak',
+    label: '취약 단어 우선',
+    // "우선"이라고 해서 약한 순으로 줄 세우는 건 아니다 — 매번 같은 단어만 나오지 않도록
+    // 가중치를 준 뽑기다. 기대와 실제가 어긋나지 않게 방식까지 적어 둔다.
+    desc: '정답률이 낮을수록, 오래 안 봤을수록 뽑힐 확률이 높아집니다. 연속으로 맞히면 점점 덜 나오고, 아직 한 번도 안 나온 단어가 가장 먼저 나옵니다. (순서대로 줄 세우는 게 아니라 확률을 높이는 방식)',
+  },
   { value: 'random', label: '무작위', desc: '전부 동일한 확률' },
-  { value: 'order', label: '등록 순서', desc: '먼저 등록한 단어부터 차례대로' },
+  {
+    value: 'order',
+    label: '등록 순서',
+    desc: '단어장에 보이는 순서 그대로. 단어장 편집에서 순서를 바꿨다면 그 순서를 따릅니다.',
+  },
 ];
 
 const SAMPLE_WORDS = ['synthesize', 'ubiquitous', 'mitigate'];

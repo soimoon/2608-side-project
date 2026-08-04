@@ -28,6 +28,13 @@ interface RemoteWordRow {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  /**
+   * 사용자가 직접 매긴 정렬 키(Word.order). "order"는 SQL 예약어라 컬럼명은
+   * sort_order로 둔다. 순서를 바꾼 적 없는 단어는 null이고, 그때는 created_at이
+   * 정렬 키가 된다. 컬럼이 아직 없는 프로젝트에서도 깨지지 않도록 읽을 때는
+   * 없으면 undefined로 흘려보낸다.
+   */
+  sort_order: number | null;
 }
 
 function toRemote(w: Word, userId: string): RemoteWordRow {
@@ -45,6 +52,7 @@ function toRemote(w: Word, userId: string): RemoteWordRow {
     created_at: new Date(w.createdAt).toISOString(),
     updated_at: new Date(w.updatedAt).toISOString(),
     deleted_at: w.deletedAt ? new Date(w.deletedAt).toISOString() : null,
+    sort_order: w.order ?? null,
   };
 }
 
@@ -57,6 +65,7 @@ function fromRemote(r: RemoteWordRow): Word {
     createdAt: new Date(r.created_at).getTime(),
     updatedAt: new Date(r.updated_at).getTime(),
     deletedAt: r.deleted_at ? new Date(r.deleted_at).getTime() : undefined,
+    order: typeof r.sort_order === 'number' ? r.sort_order : undefined,
     stats: {
       seen: r.seen,
       correct: r.correct,
@@ -165,6 +174,9 @@ export function mergeGuestWithCloud(local: Word[], remote: Word[]): MergeOutcome
     merged.push({
       ...l,
       ko,
+      // 뜻 순서와 같은 원칙으로 로컬이 우선이되, 로컬에서 순서를 만진 적이 없으면
+      // 다른 기기에서 매겨 둔 순서라도 살린다.
+      order: l.order ?? r.order,
       stats: {
         seen: l.stats.seen + r.stats.seen,
         correct: l.stats.correct + r.stats.correct,

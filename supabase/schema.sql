@@ -56,8 +56,15 @@ create table if not exists words (
   updated_at timestamptz not null default now(),
   -- 실제로 지우지 않고 이 컬럼만 채운다. 그래야 아직 동기화 못 한 다른 기기가
   -- 다음 push 때 이 행을 되살리지 않는다 (row.updatedAt이 더 최근이면 되살아나므로).
-  deleted_at timestamptz
+  deleted_at timestamptz,
+  -- 단어장에서 사용자가 직접 매긴 순서. "order"는 SQL 예약어라 이름을 달리 둔다.
+  -- null이면 순서를 바꾼 적이 없다는 뜻이고, 그때는 created_at이 곧 정렬 키다.
+  -- 두 단어 사이로 끼워 넣을 때 중간값을 쓰므로 정수가 아닐 수 있어 double이다.
+  sort_order double precision
 );
+
+-- 이미 words 테이블을 만들어 둔 프로젝트를 위한 추가 구문 (처음 만드는 경우엔 위에서 이미 생겼다).
+alter table words add column if not exists sort_order double precision;
 
 -- 같은 철자를 두 번 등록하지 못하게 한다. 삭제된(deleted_at is not null) 행은 예외.
 create unique index if not exists words_user_en_uniq
