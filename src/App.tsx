@@ -265,6 +265,7 @@ export default function App() {
         return (
           <StudyList
             words={words}
+            setWords={setWords}
             decks={decks}
             pronunciations={db.pronunciations}
             onFetchPronunciations={cachePronunciations}

@@ -5,6 +5,7 @@ import { DEFAULT_DECK, download, exportCSV, exportWordsJSON, makeWord } from '..
 import { lookupCache, missingFromCache } from '../lib/pronounce';
 import ImportReview, { type ReviewRow } from './ImportReview';
 import PronounceButton from './PronounceButton';
+import AddWordForm from './AddWordForm';
 
 const SAMPLE = `synthesize\t통합하다, 종합하다
 ubiquitous\t어디에나 있는
@@ -43,9 +44,6 @@ export default function WordManager({
   const [filterDeck, setFilterDeck] = useState('');
   const [notice, setNotice] = useState('');
   const [loadingPron, setLoadingPron] = useState(false);
-  const [manualEn, setManualEn] = useState('');
-  // "+ 뜻 추가" 버튼을 누를 때마다 빈 칸이 하나씩 늘어난다.
-  const [manualKo, setManualKo] = useState<string[]>(['']);
   const [newDeckName, setNewDeckName] = useState('');
   // 체크된 단어 id들. 여러 개를 한 번에 다른 단어장으로 옮기는 데 쓴다.
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -239,33 +237,6 @@ export default function WordManager({
     setBulkTarget('');
   }
 
-  function updateManualMeaning(i: number, value: string) {
-    setManualKo((prev) => prev.map((m, idx) => (idx === i ? value : m)));
-  }
-
-  function addManualMeaning() {
-    setManualKo((prev) => [...prev, '']);
-  }
-
-  function removeManualMeaning(i: number) {
-    setManualKo((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)));
-  }
-
-  function submitManualWord() {
-    const en = manualEn.trim();
-    const ko = manualKo.map((m) => m.trim()).filter(Boolean);
-    if (!en || ko.length === 0) return;
-    if (existing.has(en.toLowerCase())) {
-      setNotice(`이미 등록된 단어입니다: ${en}`);
-      return;
-    }
-    const target = deck.trim() || DEFAULT_DECK;
-    setWords((prev) => [...prev, makeWord(en, ko, target)]);
-    setManualEn('');
-    setManualKo(['']);
-    setNotice(`"${en}" 추가됨 (뜻 ${ko.length}개)`);
-  }
-
   return (
     <div className="screen">
       <div className="topbar">
@@ -373,56 +344,14 @@ export default function WordManager({
           한 단어에 뜻을 여러 개 붙이고 싶을 때 쓴다. 퀴즈에서는 순서대로 1, 2, 3…으로 보여준다.
         </p>
 
-        <div className="row wrap">
-          <label className="field">
-            <span>영단어</span>
-            <input
-              value={manualEn}
-              onChange={(e) => setManualEn(e.target.value)}
-              placeholder="예: exploit"
-            />
-          </label>
-          <label className="field">
-            <span>단어장</span>
-            <select value={deck} onChange={(e) => setDeck(e.target.value)}>
-              {deckOptions.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className="manual-ko-list">
-          {manualKo.map((m, i) => (
-            <div className="row manual-ko-row" key={i}>
-              <span className="ko-index">{i + 1}</span>
-              <input
-                className="cell"
-                value={m}
-                onChange={(e) => updateManualMeaning(i, e.target.value)}
-                placeholder={i === 0 ? '뜻 (예: 이용하다)' : '또 다른 뜻'}
-              />
-              {manualKo.length > 1 && (
-                <button className="btn ghost sm" onClick={() => removeManualMeaning(i)}>
-                  삭제
-                </button>
-              )}
-            </div>
-          ))}
-          <button className="btn ghost sm" onClick={addManualMeaning}>
-            + 뜻 추가
-          </button>
-        </div>
-
-        <button
-          className="btn primary"
-          disabled={!manualEn.trim() || manualKo.every((m) => !m.trim())}
-          onClick={submitManualWord}
-        >
-          등록
-        </button>
+        <AddWordForm
+          decks={deckOptions}
+          deck={deck}
+          onDeckChange={setDeck}
+          existing={existing}
+          onAdd={(word) => setWords((prev) => [...prev, word])}
+          onNotice={setNotice}
+        />
       </section>
 
       <section className="card">

@@ -16,11 +16,11 @@ export default function WordsHub({ wordCount, onStudy, onManage }: Props) {
       </header>
 
       <div className="home-actions">
-        <button className="btn primary lg" onClick={onManage}>
-          단어장 관리
-        </button>
-        <button className="btn ghost lg" onClick={onStudy} disabled={wordCount === 0}>
+        <button className="btn primary lg" onClick={onStudy} disabled={wordCount === 0}>
           단어장 보기
+        </button>
+        <button className="btn ghost lg" onClick={onManage}>
+          단어장 관리
         </button>
       </div>
     </div>
