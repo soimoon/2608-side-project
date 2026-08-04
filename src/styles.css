@@ -318,6 +318,14 @@ input[type='radio'] {
   justify-content: center;
 }
 
+.nickname-row {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.nickname-row input {
+  max-width: 160px;
+}
+
 /* ---------- 홈 ---------- */
 .topline {
   display: flex;

@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { CloudSync } from '../../lib/useCloudSync';
-import { displayNameFrom } from '../../lib/groupApi';
 import { useRoomList } from '../../lib/useRoomList';
+import { useNickname } from '../../lib/useNickname';
 import CreateRoomModal from './CreateRoomModal';
+import NicknameGateModal from './NicknameGateModal';
 
 interface Props {
   sync: CloudSync;
@@ -16,7 +17,9 @@ export default function RoomListScreen({ sync, onEnterRoom }: Props) {
   const [creating, setCreating] = useState(false);
   // 훅은 조건 분기보다 위에서 항상 호출한다 — enabled=false면 훅 내부에서 그냥 쉰다.
   const { rooms, loading, refresh } = useRoomList(Boolean(sync.session));
-  const displayName = useMemo(() => displayNameFrom(sync.session), [sync.session]);
+  const { displayName, nicknameSet, loading: nickLoading, save: saveNickname } = useNickname(
+    sync.session?.user.id,
+  );
 
   if (!sync.configured) {
     return (
@@ -42,6 +45,25 @@ export default function RoomListScreen({ sync, onEnterRoom }: Props) {
             Google로 로그인
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (nickLoading) {
+    return (
+      <div className="screen">
+        <p className="muted">확인하는 중…</p>
+      </div>
+    );
+  }
+
+  // 계정에 닉네임이 아직 없으면(로그인 제공자의 실명을 그대로 보여주지 않기 위해)
+  // 강제로 설정하게 한다. 방 목록 자체는 뒤에서 로딩만 돼 있고 조작은 막혀 있다.
+  if (!nicknameSet) {
+    return (
+      <div className="screen">
+        <p className="muted">확인하는 중…</p>
+        <NicknameGateModal onConfirm={saveNickname} />
       </div>
     );
   }
@@ -86,7 +108,7 @@ export default function RoomListScreen({ sync, onEnterRoom }: Props) {
 
       {creating && (
         <CreateRoomModal
-          displayName={displayName}
+          displayName={displayName ?? '플레이어'}
           onClose={() => setCreating(false)}
           onCreated={(roomId) => {
             setCreating(false);

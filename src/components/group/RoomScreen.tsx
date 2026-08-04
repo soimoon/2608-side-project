@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
 import type { CloudSync } from '../../lib/useCloudSync';
-import { displayNameFrom } from '../../lib/groupApi';
 import { useGroupRoom } from '../../lib/useGroupRoom';
+import { useNickname } from '../../lib/useNickname';
 import PlayerList from './PlayerList';
 import ChatPanel from './ChatPanel';
+import NicknameGateModal from './NicknameGateModal';
 
 interface Props {
   roomId: string;
@@ -15,9 +15,12 @@ interface Props {
 export default function RoomScreen({ roomId, sync, onBack }: Props) {
   const session = sync.session;
   const userId = session?.user.id;
-  const displayName = useMemo(() => displayNameFrom(session ?? null), [session]);
+  const { displayName, nicknameSet, loading: nickLoading, save: saveNickname } = useNickname(userId);
+  // 닉네임이 준비되기 전까지는 join_room을 부르지 않는다 — 직접 진입 등으로 방 목록의
+  // 게이트를 우회한 경우까지 방어한다(보통은 목록 화면에서 이미 확정되어 있다).
+  const effectiveUserId = nicknameSet ? userId : undefined;
   const { room, players, messages, loading, joinError, roomGone, kickedOut, isHost, send, kick, exit } =
-    useGroupRoom(roomId, userId, displayName);
+    useGroupRoom(roomId, effectiveUserId, displayName ?? '플레이어');
 
   async function handleLeave() {
     await exit();
@@ -33,6 +36,23 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
             ← 목록으로
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (nickLoading) {
+    return (
+      <div className="screen">
+        <p className="muted">확인하는 중…</p>
+      </div>
+    );
+  }
+
+  if (!nicknameSet) {
+    return (
+      <div className="screen">
+        <p className="muted">확인하는 중…</p>
+        <NicknameGateModal onConfirm={saveNickname} />
       </div>
     );
   }

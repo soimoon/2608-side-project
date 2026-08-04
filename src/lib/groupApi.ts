@@ -1,5 +1,5 @@
-import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import { randomNicknameWord } from '../data/nicknameWords';
 
 /**
  * 단체게임 방(game_rooms/room_players/room_messages) RPC 래퍼.
@@ -64,16 +64,6 @@ export interface ApiResult<T> {
 
 /** 신선한(60초 이내 하트비트) 참가자만 "접속 중"으로 친다. RPC 쪽 판정과 같은 창을 쓴다. */
 export const FRESH_WINDOW_MS = 60_000;
-
-/** Google 로그인 메타데이터에서 표시 이름을 뽑는다. 없으면 이메일 @ 앞부분으로 폴백한다. */
-export function displayNameFrom(session: Session | null): string {
-  if (!session) return '플레이어';
-  const meta = session.user.user_metadata as { full_name?: string; name?: string } | undefined;
-  const fromMeta = meta?.full_name ?? meta?.name;
-  if (fromMeta?.trim()) return fromMeta.trim();
-  const email = session.user.email ?? '';
-  return email.split('@')[0] || '플레이어';
-}
 
 interface RoomListRow {
   id: string;
@@ -176,6 +166,7 @@ export async function joinRoom(roomId: string, displayName: string): Promise<Api
 function mapJoinError(message?: string): string {
   if (message?.includes('ROOM_FULL')) return '방이 가득 찼습니다.';
   if (message?.includes('ROOM_NOT_FOUND')) return '이미 사라진 방입니다.';
+  if (message?.includes('KICKED_COOLDOWN')) return '강퇴된 방입니다. 잠시 후 다시 시도해 주세요.';
   return message ?? '입장하지 못했습니다.';
 }
 
@@ -313,6 +304,74 @@ export async function sendMessage(
     const { error } = await supabase
       .from('room_messages')
       .insert({ room_id: roomId, user_id: userId, display_name: displayName, body: trimmed.slice(0, 300) });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * 닉네임(profiles.display_name). 단체게임에서 다른 참가자에게 보이는 이름이 이거다.
+ * 로그인 제공자의 실명에 기대지 않기 위해, 계정마다 한 번은 반드시 확정해야 한다
+ * (nickname_set=false면 group 화면 진입 시 설정 모달을 강제로 띄운다).
+ */
+export interface NicknameStatus {
+  displayName: string | null;
+  nicknameSet: boolean;
+}
+
+interface ProfileNicknameRow {
+  display_name: string | null;
+  nickname_set: boolean;
+}
+
+export async function fetchNicknameStatus(userId: string): Promise<NicknameStatus> {
+  if (!supabase) return { displayName: null, nicknameSet: false };
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('display_name, nickname_set')
+      .eq('id', userId)
+      .maybeSingle();
+    if (error || !data) return { displayName: null, nicknameSet: false };
+    const row = data as ProfileNicknameRow;
+    return { displayName: row.display_name, nicknameSet: Boolean(row.nickname_set) };
+  } catch {
+    return { displayName: null, nicknameSet: false };
+  }
+}
+
+/**
+ * 랜덤 제시안 하나를 받아온다("샴12"). 단어별 순번은 서버가 원자적으로 매기므로
+ * (next_nickname RPC) 동시에 여러 명이 같은 단어를 뽑아도 겹치지 않는다.
+ */
+export async function suggestNickname(): Promise<string | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.rpc('next_nickname', { p_word: randomNicknameWord() });
+    if (error || !data) return null;
+    return data as string;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 닉네임을 확정한다. profiles_update_own 정책이 이미 "내 행"을 직접 수정하도록
+ * 허용해 두어서(id=auth.uid()) RPC 없이 바로 UPDATE한다.
+ */
+export async function setNickname(userId: string, nickname: string): Promise<ApiResult<void>> {
+  if (!supabase) return { ok: false, error: '클라우드 설정이 없습니다.' };
+  const trimmed = nickname.trim();
+  if (trimmed.length < 1 || trimmed.length > 12) {
+    return { ok: false, error: '닉네임은 1~12자로 입력해 주세요.' };
+  }
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ display_name: trimmed, nickname_set: true })
+      .eq('id', userId);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   } catch (e) {

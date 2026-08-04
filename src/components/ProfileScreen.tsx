@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { THEMES, type ClaimKind, type SessionResult, type Theme, type Word } from '../types';
 import {
   BADGES,
@@ -11,6 +11,7 @@ import {
   totalCorrect,
 } from '../lib/attendance';
 import type { CloudSync } from '../lib/useCloudSync';
+import { useNickname } from '../lib/useNickname';
 import AuthBar from './AuthBar';
 
 // Theme에 새 값을 추가하면 여기서 타입 에러가 나 라벨 추가를 잊지 않게 된다.
@@ -120,6 +121,26 @@ export default function ProfileScreen({
     volume: totalCorrect(words),
   };
 
+  const { displayName: nickname, nicknameSet, save: saveNickname } = useNickname(sync.session?.user.id);
+  const [editingNickname, setEditingNickname] = useState(false);
+  const [nicknameInput, setNicknameInput] = useState('');
+  const [nicknameError, setNicknameError] = useState('');
+
+  function startEditNickname() {
+    setNicknameInput(nickname ?? '');
+    setNicknameError('');
+    setEditingNickname(true);
+  }
+
+  async function submitNickname() {
+    const res = await saveNickname(nicknameInput);
+    if (!res.ok) {
+      setNicknameError(res.error ?? '저장하지 못했습니다.');
+      return;
+    }
+    setEditingNickname(false);
+  }
+
   return (
     <div className="screen">
       <div className="topline">
@@ -135,6 +156,40 @@ export default function ProfileScreen({
         </label>
         <AuthBar sync={sync} />
       </div>
+
+      {sync.session && (
+        <div className="row nickname-row">
+          <span className="muted">단체게임 닉네임</span>
+          {editingNickname ? (
+            <>
+              <input
+                value={nicknameInput}
+                onChange={(e) => setNicknameInput(e.target.value)}
+                maxLength={12}
+                autoFocus
+              />
+              <button className="btn primary sm" onClick={submitNickname}>
+                저장
+              </button>
+              <button className="btn ghost sm" onClick={() => setEditingNickname(false)}>
+                취소
+              </button>
+            </>
+          ) : (
+            <>
+              <b>{nicknameSet ? nickname : '미설정'}</b>
+              <button className="btn ghost sm" onClick={startEditNickname}>
+                {nicknameSet ? '변경' : '설정'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {nicknameError && (
+        <p className="notice-bar" role="status">
+          {nicknameError}
+        </p>
+      )}
 
       <header className="hero">
         <h1>프로필</h1>

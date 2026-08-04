@@ -8,10 +8,17 @@
 create table if not exists profiles (
   id uuid primary key references auth.users on delete cascade,
   display_name text,
+  -- 사용자가 직접(또는 랜덤 제시안을 그대로) 닉네임을 확정했는지. false면 단체게임
+  -- 진입 시 닉네임 설정 화면을 강제로 띄운다. 로그인 제공자가 나중에 구글 외에도
+  -- 늘어날 수 있어, "구글 실명을 그대로 보여주는" 방식에 기대지 않기 위한 필드다.
+  nickname_set boolean not null default false,
   -- 마지막으로 고른 색 테마. 로그인 시 이 값을 불러와 다른 기기에도 적용한다.
   theme text not null default 'blue',
   created_at timestamptz not null default now()
 );
+
+-- 이미 profiles 테이블이 있는 프로젝트를 위한 추가 구문.
+alter table profiles add column if not exists nickname_set boolean not null default false;
 
 alter table profiles enable row level security;
 
@@ -22,12 +29,13 @@ create policy "profiles_upsert_own" on profiles
 create policy "profiles_update_own" on profiles
   for update using (id = auth.uid());
 
--- 신규 유저가 auth.users에 생기면 profiles 행도 자동으로 만든다.
+-- 신규 유저가 auth.users에 생기면 profiles 행도 자동으로 만든다. display_name은
+-- 일부러 채우지 않는다 — 로그인 제공자의 실명/이메일을 그대로 노출하지 않고,
+-- 단체게임 진입 시 닉네임 설정 화면(nickname_set=false)에서 랜덤 제시안을 받는다.
 create or replace function handle_new_user()
 returns trigger as $$
 begin
-  insert into public.profiles (id, display_name)
-  values (new.id, coalesce(new.raw_user_meta_data->>'full_name', new.email));
+  insert into public.profiles (id) values (new.id);
   return new;
 end;
 $$ language plpgsql security definer;
@@ -300,6 +308,36 @@ begin
   end if;
 end $$;
 
+-- ---------- 단체게임: 닉네임 생성용 카운터 ----------
+-- "샴1", "샴2"…처럼 단어별로 순번을 매긴 닉네임을 겹치지 않게 내주기 위한 카운터.
+-- insert ... on conflict do update는 그 자체로 원자적이라(행 잠금이 암묵적으로 걸림)
+-- 동시에 여러 명이 가입해도 같은 번호가 두 번 나가지 않는다. 단어 목록 자체는
+-- src/data/nicknameWords.ts에 있다 — 지금은 임시(고양이 품종)이고, 나중에 앱
+-- 디자인 컨셉이 정해지면 그 목록만 통째로 바꾸면 된다.
+create table if not exists nickname_word_counters (
+  word text primary key,
+  used int not null default 0
+);
+
+alter table nickname_word_counters enable row level security;
+-- select/insert/update 정책을 두지 않는다 — next_nickname() RPC(security definer)만
+-- 건드릴 수 있으면 충분하고, 클라이언트가 카운터를 직접 조작할 이유가 없다.
+
+-- ---------- 단체게임: room_kicks (강퇴 쿨타임) ----------
+-- 강퇴된 사람이 바로 재입장하지 못하게 10분간 막는다. (room_id, user_id) 기본키라
+-- 같은 사람을 다시 강퇴해도 kicked_at 갱신만 될 뿐 여러 행이 쌓이지 않는다.
+create table if not exists room_kicks (
+  room_id uuid not null references game_rooms on delete cascade,
+  user_id uuid not null references auth.users on delete cascade,
+  kicked_at timestamptz not null default now(),
+  primary key (room_id, user_id)
+);
+
+alter table room_kicks enable row level security;
+-- 이 테이블도 정책을 두지 않는다 — join_room()/kick_player() RPC 안에서만 읽고 쓴다.
+-- 클라이언트가 "내가 강퇴당했는지"를 직접 조회할 필요는 join_room의 에러 메시지로
+-- 충분하다.
+
 -- ---------- 단체게임: RPC ----------
 -- 전부 security definer + search_path 고정 + authenticated 전용(anon 차단). RLS의
 -- "select는 전부 공개, 쓰기는 정책 없음" 조합과 짝을 이뤄, 정원·방장이전 같은 경쟁
@@ -310,6 +348,19 @@ language sql stable as $$
   -- now()는 트랜잭션 시작 시각이라 커넥션 풀 상황에서 미세하게 뒤처질 수 있다.
   -- clock_timestamp()는 실제 호출 시각.
   select (extract(epoch from clock_timestamp()) * 1000)::bigint;
+$$;
+
+-- p_word(예: '샴')를 받아 '샴1', '샴2'…처럼 그 단어의 다음 순번을 붙인 닉네임을 돌려준다.
+-- insert ... on conflict do update가 통째로 원자적이라 별도 잠금 없이 동시 요청에도 안전하다.
+create or replace function next_nickname(p_word text) returns text
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  insert into nickname_word_counters (word, used) values (p_word, 1)
+    on conflict (word) do update set used = nickname_word_counters.used + 1
+    returning used into n;
+  return p_word || n::text;
+end;
 $$;
 
 create or replace function sweep_rooms() returns void
@@ -393,6 +444,14 @@ begin
   select * into r from game_rooms where id = p_room_id for update;
   if r is null then raise exception 'ROOM_NOT_FOUND'; end if;
 
+  if exists (
+    select 1 from room_kicks
+    where room_id = p_room_id and user_id = auth.uid()
+      and kicked_at > now() - interval '10 minutes'
+  ) then
+    raise exception 'KICKED_COOLDOWN';
+  end if;
+
   select exists(
     select 1 from room_players where room_id = p_room_id and user_id = auth.uid()
   ) into already;
@@ -446,6 +505,11 @@ begin
   if p_user_id = auth.uid() then raise exception 'CANNOT_KICK_SELF'; end if;
 
   delete from room_players where room_id = p_room_id and user_id = p_user_id;
+
+  -- 10분 동안 이 방에 재입장을 막는다. 같은 사람을 다시 강퇴해도 kicked_at만 갱신될 뿐
+  -- (재쿨타임), 여러 번 쌓이지 않는다.
+  insert into room_kicks (room_id, user_id) values (p_room_id, p_user_id)
+    on conflict (room_id, user_id) do update set kicked_at = now();
 end;
 $$;
 
@@ -486,6 +550,7 @@ $$;
 -- 조용히 건너뛸 수 있다(예: kick_player의 NOT_HOST 검사). 그래서 검사 로직을 더 두는 대신
 -- 아예 authenticated가 아니면 호출 자체를 막는다.
 revoke execute on function server_now_ms() from public;
+revoke execute on function next_nickname(text) from public;
 revoke execute on function sweep_rooms() from public;
 revoke execute on function list_rooms() from public;
 revoke execute on function create_room(text, int, text, int, text) from public;
@@ -496,6 +561,7 @@ revoke execute on function heartbeat(uuid) from public;
 revoke execute on function reconcile_room(uuid) from public;
 
 grant execute on function server_now_ms() to authenticated;
+grant execute on function next_nickname(text) to authenticated;
 grant execute on function sweep_rooms() to authenticated;
 grant execute on function list_rooms() to authenticated;
 grant execute on function create_room(text, int, text, int, text) to authenticated;
