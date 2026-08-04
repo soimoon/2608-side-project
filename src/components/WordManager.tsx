@@ -54,6 +54,14 @@ export default function WordManager({
 
   const existing = useMemo(() => new Set(words.map((w) => w.en.toLowerCase())), [words]);
 
+  // <input list="..."> (datalist)는 모바일 브라우저에서 드롭다운이 안 뜨는 경우가 많아
+  // <select>를 쓴다. 아직 단어장이 하나도 없는 신규 사용자도 바로 등록할 수 있도록
+  // DEFAULT_DECK("기본")은 목록에 없어도 항상 선택지에 넣는다.
+  const deckOptions = useMemo(
+    () => (decks.includes(DEFAULT_DECK) ? decks : [DEFAULT_DECK, ...decks]),
+    [decks],
+  );
+
   // 검수 화면을 열기 전, 붙여넣은 텍스트에서 몇 줄이나 인식되는지 버튼에 미리 보여준다.
   const quickCount = useMemo(() => parseBulk(bulk), [bulk]);
 
@@ -287,6 +295,13 @@ export default function WordManager({
         </div>
       </div>
 
+      {/* 어느 카드에서 비롯된 알림이든(등록·생성·이동 등) 항상 같은 자리에 보여준다. */}
+      {notice && (
+        <p className="notice-bar" role="status">
+          {notice}
+        </p>
+      )}
+
       <section className="card">
         <h3>단어 추가</h3>
         <p className="muted">
@@ -298,17 +313,13 @@ export default function WordManager({
         <div className="row">
           <label className="field">
             <span>단어장</span>
-            <input
-              list="deck-list"
-              value={deck}
-              onChange={(e) => setDeck(e.target.value)}
-              placeholder="예: 토플 초록책 Day 1"
-            />
-            <datalist id="deck-list">
-              {decks.map((d) => (
-                <option key={d} value={d} />
+            <select value={deck} onChange={(e) => setDeck(e.target.value)}>
+              {deckOptions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
               ))}
-            </datalist>
+            </select>
           </label>
           {!reviewRows && (
             <button className="btn ghost" onClick={() => fileRef.current?.click()}>
@@ -352,7 +363,6 @@ export default function WordManager({
                   })`
                 : '검토하기'}
             </button>
-            {notice && <span className="notice">{notice}</span>}
           </>
         )}
       </section>
@@ -374,7 +384,13 @@ export default function WordManager({
           </label>
           <label className="field">
             <span>단어장</span>
-            <input list="deck-list" value={deck} onChange={(e) => setDeck(e.target.value)} />
+            <select value={deck} onChange={(e) => setDeck(e.target.value)}>
+              {deckOptions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
 
