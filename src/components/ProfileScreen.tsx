@@ -165,7 +165,7 @@ export default function ProfileScreen({
               <input
                 value={nicknameInput}
                 onChange={(e) => setNicknameInput(e.target.value)}
-                maxLength={12}
+                maxLength={10}
                 autoFocus
               />
               <button className="btn primary sm" onClick={submitNickname}>

@@ -20,6 +20,32 @@ create table if not exists profiles (
 -- 이미 profiles 테이블이 있는 프로젝트를 위한 추가 구문.
 alter table profiles add column if not exists nickname_set boolean not null default false;
 
+-- 닉네임 형식 강제: 영문·숫자·한글만, 1~10자. 제약을 걸기 전에 이미 들어가 있는(예:
+-- 옛 가입 트리거가 구글 실명/이메일로 자동 채웠던 시절의) 위반 데이터를 먼저 비운다
+-- — 그러지 않으면 아래 constraint 추가 자체가 실패한다.
+update profiles set display_name = null, nickname_set = false
+  where display_name is not null
+    and display_name !~ '^[A-Za-z0-9가-힣]{1,10}$';
+
+-- 대소문자 구분 없이 중복도 미리 정리한다(먼저 확정한 계정을 남기고 나머지는 재설정).
+with dupes as (
+  select id, row_number() over (
+    partition by lower(display_name) order by created_at asc
+  ) as rn
+  from profiles
+  where display_name is not null
+)
+update profiles p set display_name = null, nickname_set = false
+  from dupes d where p.id = d.id and d.rn > 1;
+
+alter table profiles drop constraint if exists profiles_display_name_format;
+alter table profiles add constraint profiles_display_name_format
+  check (display_name is null or display_name ~ '^[A-Za-z0-9가-힣]{1,10}$');
+
+-- 대소문자 구분 없이 유일해야 한다("Cat1"과 "cat1"도 같은 닉네임으로 본다).
+create unique index if not exists profiles_display_name_uniq
+  on profiles (lower(display_name)) where display_name is not null;
+
 alter table profiles enable row level security;
 
 create policy "profiles_select_own" on profiles
@@ -342,6 +368,10 @@ $$;
 -- 동시에 두 명이 같은 빈 번호를 제시받을 가능성은 이론상 있지만(레이스), 닉네임은
 -- 애초에 전역 유일성을 강제하지 않는 값이라 무해하다 — 아주 드물게 겹쳐도 그냥
 -- 두 사람이 같은 이름을 쓰게 될 뿐이다.
+-- 닉네임이 1~10자로 제한되므로(profiles_display_name_format), 긴 단어일수록 붙일 수
+-- 있는 숫자 자릿수가 줄어든다("브리티시숏헤어"는 7자라 999까지만). 10자를 넘어서면
+-- 그 단어로는 못 찾은 것이므로 null을 돌려주고, 호출부(suggestNickname)가 다른 단어로
+-- 다시 시도한다.
 create or replace function next_nickname(p_word text) returns text
 language plpgsql security definer set search_path = public as $$
 declare n int := 1;
@@ -349,13 +379,11 @@ declare candidate text;
 begin
   loop
     candidate := p_word || n::text;
-    exit when not exists (select 1 from profiles where display_name = candidate);
-    n := n + 1;
-    -- 이 단어를 만 명 가까이 쓰는 경우는 사실상 없지만, 혹시 몰라 무한루프 대신
-    -- 임의의 큰 번호로 안전하게 빠져나간다.
-    if n > 9999 then
-      return p_word || (10000 + floor(random() * 90000))::int::text;
+    if char_length(candidate) > 10 then
+      return null;
     end if;
+    exit when not exists (select 1 from profiles where lower(display_name) = lower(candidate));
+    n := n + 1;
   end loop;
   return candidate;
 end;

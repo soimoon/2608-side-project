@@ -59,9 +59,10 @@ export default function NicknameGateModal({ onConfirm }: Props) {
             value={nickname}
             onChange={(e) => setNickname(e.target.value)}
             placeholder={suggesting ? '만드는 중…' : ''}
-            maxLength={12}
+            maxLength={10}
             disabled={suggesting}
           />
+          <span className="muted">영문·숫자·한글, 1~10자. 다른 사람과 겹칠 수 없어요.</span>
         </label>
 
         <div className="row">

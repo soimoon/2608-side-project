@@ -347,7 +347,7 @@ export async function fetchNicknameStatus(userId: string): Promise<NicknameStatu
  * 랜덤 제시안 하나를 받아온다("샴12"). 단어별 순번은 서버가 원자적으로 매기므로
  * (next_nickname RPC) 동시에 여러 명이 같은 단어를 뽑아도 겹치지 않는다.
  */
-export async function suggestNickname(): Promise<string | null> {
+async function suggestNicknameOnce(): Promise<string | null> {
   if (!supabase) return null;
   try {
     const { data, error } = await supabase.rpc('next_nickname', { p_word: randomNicknameWord() });
@@ -359,21 +359,38 @@ export async function suggestNickname(): Promise<string | null> {
 }
 
 /**
+ * 그 단어로는 10자 안에 빈 번호를 못 찾으면(사실상 없을 상황) RPC가 null을 돌려준다 —
+ * 다른 단어로 한 번 더 시도한다. 그래도 안 되면 그냥 빈 입력으로 두고 사용자가 직접 쓰게 한다.
+ */
+export async function suggestNickname(): Promise<string | null> {
+  return (await suggestNicknameOnce()) ?? (await suggestNicknameOnce());
+}
+
+/** 닉네임 형식 검사. DB의 profiles_display_name_format 제약과 정확히 같은 규칙이어야 한다. */
+const NICKNAME_PATTERN = /^[A-Za-z0-9가-힣]{1,10}$/;
+
+/**
  * 닉네임을 확정한다. profiles_update_own 정책이 이미 "내 행"을 직접 수정하도록
- * 허용해 두어서(id=auth.uid()) RPC 없이 바로 UPDATE한다.
+ * 허용해 두어서(id=auth.uid()) RPC 없이 바로 UPDATE한다. 중복·형식은 DB 제약
+ * (profiles_display_name_uniq/profiles_display_name_format)이 최종적으로 막아 주므로,
+ * 여기 검사는 대부분의 경우 왕복 없이 바로 걸러내는 용도다.
  */
 export async function setNickname(userId: string, nickname: string): Promise<ApiResult<void>> {
   if (!supabase) return { ok: false, error: '클라우드 설정이 없습니다.' };
   const trimmed = nickname.trim();
-  if (trimmed.length < 1 || trimmed.length > 12) {
-    return { ok: false, error: '닉네임은 1~12자로 입력해 주세요.' };
+  if (!NICKNAME_PATTERN.test(trimmed)) {
+    return { ok: false, error: '닉네임은 영문·숫자·한글로 1~10자여야 합니다.' };
   }
   try {
     const { error } = await supabase
       .from('profiles')
       .update({ display_name: trimmed, nickname_set: true })
       .eq('id', userId);
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      if (error.code === '23505') return { ok: false, error: '이미 사용 중인 닉네임입니다.' };
+      if (error.code === '23514') return { ok: false, error: '닉네임은 영문·숫자·한글로 1~10자여야 합니다.' };
+      return { ok: false, error: error.message };
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
