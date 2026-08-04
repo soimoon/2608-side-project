@@ -1,7 +1,8 @@
 import { THEMES, type DB, type QuizSettings, type Theme, type Word } from '../types';
 
-const KEY = 'voca-quiz/v6';
-/** v6 이전 데이터. 있으면 1회 마이그레이션하고, 원본은 롤백 대비로 남겨 둔다. */
+const KEY = 'voca-quiz/v7';
+/** v7 이전 데이터. 있으면 1회 마이그레이션하고, 원본은 롤백 대비로 남겨 둔다. */
+const LEGACY_V6_KEY = 'voca-quiz/v6';
 const LEGACY_V5_KEY = 'voca-quiz/v5';
 const LEGACY_V4_KEY = 'voca-quiz/v4';
 const LEGACY_V3_KEY = 'voca-quiz/v3';
@@ -23,7 +24,7 @@ export const DEFAULT_SETTINGS: QuizSettings = {
 };
 
 function defaultDailyMission(): DB['dailyMission'] {
-  return { date: '', revived: 0 };
+  return { date: '', revivedWordIds: [] };
 }
 
 /** 알 수 없는 값(구버전 데이터, 미래 버전이 내려보낸 값 등)이면 기본 테마로. */
@@ -33,7 +34,7 @@ export function isTheme(value: unknown): value is Theme {
 
 function emptyDB(): DB {
   return {
-    version: 6,
+    version: 7,
     words: [],
     settings: { ...DEFAULT_SETTINGS },
     history: [],
@@ -93,13 +94,13 @@ function normalizeLegacyWord(w: Record<string, unknown>): Word | null {
   };
 }
 
-/** v1·v2(ko가 문자열이던 시절) 데이터를 v6 모양으로 채워 넣는다. 두 버전 모두 구조가 같아 하나로 처리한다. */
+/** v1·v2(ko가 문자열이던 시절) 데이터를 v7 모양으로 채워 넣는다. 두 버전 모두 구조가 같아 하나로 처리한다. */
 function migrateLegacy(parsed: Record<string, unknown>): DB {
   const rawWords = Array.isArray(parsed.words) ? (parsed.words as Record<string, unknown>[]) : [];
   const words = rawWords.map(normalizeLegacyWord).filter((w): w is Word => w !== null);
 
   return {
-    version: 6,
+    version: 7,
     words,
     settings: { ...DEFAULT_SETTINGS, ...((parsed.settings as Partial<QuizSettings>) ?? {}) },
     history: Array.isArray(parsed.history) ? (parsed.history as DB['history']) : [],
@@ -112,10 +113,10 @@ function migrateLegacy(parsed: Record<string, unknown>): DB {
   };
 }
 
-/** v3(ko는 이미 배열, decks·theme만 없던 시절) → v6. */
+/** v3(ko는 이미 배열, decks·theme만 없던 시절) → v7. */
 function migrateV3(parsed: Record<string, unknown>): DB {
   return {
-    version: 6,
+    version: 7,
     words: Array.isArray(parsed.words)
       ? (parsed.words as Word[]).map((w) => ({ ...w, ko: toKoArray(w.ko) }))
       : [],
@@ -130,10 +131,10 @@ function migrateV3(parsed: Record<string, unknown>): DB {
   };
 }
 
-/** v4(decks까지는 있고 theme만 없던 시절) → v6. */
+/** v4(decks까지는 있고 theme만 없던 시절) → v7. */
 function migrateV4(parsed: Record<string, unknown>): DB {
   return {
-    version: 6,
+    version: 7,
     words: Array.isArray(parsed.words)
       ? (parsed.words as Word[]).map((w) => ({ ...w, ko: toKoArray(w.ko) }))
       : [],
@@ -148,10 +149,10 @@ function migrateV4(parsed: Record<string, unknown>): DB {
   };
 }
 
-/** v5(theme까지는 있고 출석/미션만 없던 시절) → v6. */
+/** v5(theme까지는 있고 출석/미션만 없던 시절) → v7. */
 function migrateV5(parsed: Record<string, unknown>): DB {
   return {
-    version: 6,
+    version: 7,
     words: Array.isArray(parsed.words)
       ? (parsed.words as Word[]).map((w) => ({ ...w, ko: toKoArray(w.ko) }))
       : [],
@@ -166,13 +167,36 @@ function migrateV5(parsed: Record<string, unknown>): DB {
   };
 }
 
+/**
+ * v6(dailyMission이 {date, revived: 카운터}였던 시절) → v7. 카운터를 그날 되살린
+ * 단어 id 집합으로 바꾸는 마이그레이션인데, 이미 저장된 값에서 "어떤 단어"였는지는
+ * 복원할 수 없다 — 그날의 진행률(반나절 정도의 누적치)만 한 번 0으로 리셋된다.
+ * 하루 안에서만 의미 있는 값이라 다음 날이면 어차피 리셋될 값이었으므로 감수한다.
+ */
+function migrateV6(parsed: Record<string, unknown>): DB {
+  return {
+    version: 7,
+    words: Array.isArray(parsed.words)
+      ? (parsed.words as Word[]).map((w) => ({ ...w, ko: toKoArray(w.ko) }))
+      : [],
+    settings: { ...DEFAULT_SETTINGS, ...((parsed.settings as Partial<QuizSettings>) ?? {}) },
+    history: Array.isArray(parsed.history) ? (parsed.history as DB['history']) : [],
+    sync: (parsed.sync as DB['sync']) ?? { lastPulledAt: 0, lastPushedAt: 0 },
+    pronunciations: (parsed.pronunciations as DB['pronunciations']) ?? {},
+    decks: Array.isArray(parsed.decks) ? (parsed.decks as string[]) : [],
+    theme: isTheme(parsed.theme) ? parsed.theme : DEFAULT_THEME,
+    dailyMission: defaultDailyMission(),
+    dailyClaims: Array.isArray(parsed.dailyClaims) ? (parsed.dailyClaims as string[]) : [],
+  };
+}
+
 export function loadDB(): DB {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<DB>;
       return {
-        version: 6,
+        version: 7,
         // 방어적으로 한 번 더 배열화한다 — 수동으로 손댄 localStorage 등 이상값 대비.
         words: Array.isArray(parsed.words)
           ? parsed.words.map((w) => ({ ...w, ko: toKoArray(w.ko) }))
@@ -184,14 +208,22 @@ export function loadDB(): DB {
         decks: Array.isArray(parsed.decks) ? parsed.decks : [],
         theme: isTheme(parsed.theme) ? parsed.theme : DEFAULT_THEME,
         dailyMission:
-          parsed.dailyMission && typeof parsed.dailyMission.date === 'string'
+          parsed.dailyMission &&
+          typeof parsed.dailyMission.date === 'string' &&
+          Array.isArray(parsed.dailyMission.revivedWordIds)
             ? parsed.dailyMission
             : defaultDailyMission(),
         dailyClaims: Array.isArray(parsed.dailyClaims) ? parsed.dailyClaims : [],
       };
     }
 
-    // v6 키가 없으면 구버전이 있는지 순서대로 확인해 단어를 잃지 않고 옮긴다.
+    // v7 키가 없으면 구버전이 있는지 순서대로 확인해 단어를 잃지 않고 옮긴다.
+    const v6Raw = localStorage.getItem(LEGACY_V6_KEY);
+    if (v6Raw) {
+      const migrated = migrateV6(JSON.parse(v6Raw) as Record<string, unknown>);
+      saveDB(migrated);
+      return migrated;
+    }
     const v5Raw = localStorage.getItem(LEGACY_V5_KEY);
     if (v5Raw) {
       const migrated = migrateV5(JSON.parse(v5Raw) as Record<string, unknown>);
@@ -214,7 +246,7 @@ export function loadDB(): DB {
       const legacyRaw = localStorage.getItem(legacyKey);
       if (legacyRaw) {
         const migrated = migrateLegacy(JSON.parse(legacyRaw) as Record<string, unknown>);
-        saveDB(migrated); // 바로 v6로 저장해, 다음부터는 이 분기를 타지 않는다.
+        saveDB(migrated); // 바로 v7로 저장해, 다음부터는 이 분기를 타지 않는다.
         return migrated;
       }
     }

@@ -47,7 +47,7 @@ interface Props {
   sync: CloudSync;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
-  dailyMission: { date: string; revived: number };
+  dailyMission: { date: string; revivedWordIds: string[] };
   dailyClaims: string[];
   onClaim: (kind: ClaimKind) => void;
   onGoWords: () => void;
@@ -104,7 +104,7 @@ export default function ProfileScreen({
   const attendedToday = hasClaimed(dailyClaims, today, 'attendance');
   const attendStreak = attendanceStreak(dailyClaims, 'attendance', now);
 
-  const missionProgress = dailyMission.date === today ? dailyMission.revived : 0;
+  const missionProgress = dailyMission.date === today ? dailyMission.revivedWordIds.length : 0;
   const missionDone = missionProgress >= MISSION_TARGET;
   const missionClaimed = hasClaimed(dailyClaims, today, 'mission_revive');
 

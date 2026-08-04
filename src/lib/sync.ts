@@ -270,3 +270,48 @@ export async function pushDailyClaim(userId: string, date: string, kind: ClaimKi
     /* no-op */
   }
 }
+
+interface RevivalEventRow {
+  word_id: string;
+}
+
+/**
+ * 특정 날짜(KST)에 이 계정이 되살린 단어 id 목록을 가져온다. 오늘의 미션 진행률을
+ * 다른 기기와 맞추는 데 쓴다 — daily_claims와 같은 append-only 패턴이라 로컬
+ * revivedWordIds와 합집합으로 합치기만 하면 된다. 실패하면 빈 배열(로컬 유지).
+ */
+export async function pullRevivalEvents(userId: string, dateKey: string): Promise<string[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('revival_events')
+      .select('word_id')
+      .eq('user_id', userId)
+      .eq('date', dateKey);
+    if (error || !data) return [];
+    return (data as RevivalEventRow[]).map((r) => r.word_id);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 오늘 새로 되살린 단어들을 계정에 기록한다. (user_id, date, word_id)가 기본키라
+ * 같은 단어를 같은 날 두 번 보내도 안전하다. 실패해도 조용히 넘어간다 — 로컬에는
+ * 이미 반영돼 있으므로 다음 로그인/포커스 때 다시 pull하면 자연히 맞춰진다.
+ */
+export async function pushRevivalEvents(
+  userId: string,
+  dateKey: string,
+  wordIds: string[],
+): Promise<void> {
+  if (!supabase || wordIds.length === 0) return;
+  try {
+    await supabase.from('revival_events').upsert(
+      wordIds.map((word_id) => ({ user_id: userId, date: dateKey, word_id })),
+      { onConflict: 'user_id,date,word_id', ignoreDuplicates: true },
+    );
+  } catch {
+    /* no-op */
+  }
+}

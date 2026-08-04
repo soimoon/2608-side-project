@@ -139,6 +139,27 @@ create policy "daily_claims_select_own" on daily_claims
 create policy "daily_claims_insert_own" on daily_claims
   for insert with check (user_id = auth.uid());
 
+-- ---------- revival_events ----------
+-- 오답 부활전에서 그날 되살린 단어를 한 행씩 기록한다("오늘 미션 진행률"을 완전히
+-- 동기화하기 위한 append-only 이벤트 로그). 같은 단어를 같은 날 두 번 되살려도
+-- (user_id, date, word_id) 기본키 덕분에 한 번만 집계된다.
+create table if not exists revival_events (
+  user_id uuid not null references auth.users on delete cascade,
+  date date not null,   -- KST 기준 날짜
+  word_id text not null,
+  occurred_at timestamptz not null default now(),
+  primary key (user_id, date, word_id)
+);
+
+create index if not exists revival_events_user_date on revival_events (user_id, date);
+
+alter table revival_events enable row level security;
+
+create policy "revival_events_select_own" on revival_events
+  for select using (user_id = auth.uid());
+create policy "revival_events_insert_own" on revival_events
+  for insert with check (user_id = auth.uid());
+
 -- ---------- 마이그레이션: words.ko  text → text[] ----------
 -- 이미 이 스키마로 프로젝트를 만들어서 words.ko가 text 컬럼인 상태라면, 위 CREATE TABLE은
 -- "if not exists"라 조용히 무시되고 컬럼 타입은 안 바뀐다. 아래를 한 번만 따로 실행한다.

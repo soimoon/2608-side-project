@@ -3,8 +3,15 @@ import type { Attempt, ClaimKind, DB, QuizSettings, SessionResult, Theme, Word }
 import { activeWords, loadDB, newId, saveDB } from './lib/storage';
 import { useCloudSync } from './lib/useCloudSync';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
-import { pullDailyClaims, pullTheme, pushDailyClaim, pushTheme } from './lib/sync';
-import { claimKey, kstDateKey } from './lib/attendance';
+import {
+  pullDailyClaims,
+  pullRevivalEvents,
+  pullTheme,
+  pushDailyClaim,
+  pushRevivalEvents,
+  pushTheme,
+} from './lib/sync';
+import { REVIVAL_STREAK_GOAL, claimKey, kstDateKey } from './lib/attendance';
 import { allDeckNames, pickRevivalWords, revivalPool } from './lib/select';
 import BottomNav, { type Tab } from './components/BottomNav';
 import ProfileScreen from './components/ProfileScreen';
@@ -106,6 +113,29 @@ export default function App() {
     });
   }, [sync.session]);
 
+  // 로그인 직후 + 창 포커스를 되찾을 때마다, 오늘 다른 기기에서 되살린 단어를 가져와
+  // 합친다. 테마·출석과 달리 미션 진행률은 하루 안에서 계속 바뀌므로 로그인 시
+  // 1회만으로는 부족하다 — revival_events가 append-only라 그냥 합집합이면 된다.
+  useEffect(() => {
+    const userId = sync.session?.user.id;
+    if (!userId) return;
+    const pull = () => {
+      const today = kstDateKey(Date.now());
+      void pullRevivalEvents(userId, today).then((remoteIds) => {
+        if (remoteIds.length === 0) return;
+        setDB((d) => {
+          const base = d.dailyMission.date === today ? d.dailyMission.revivedWordIds : [];
+          const merged = [...new Set([...base, ...remoteIds])];
+          if (merged.length === base.length && d.dailyMission.date === today) return d;
+          return { ...d, dailyMission: { date: today, revivedWordIds: merged } };
+        });
+      });
+    };
+    pull();
+    window.addEventListener('focus', pull);
+    return () => window.removeEventListener('focus', pull);
+  }, [sync.session]);
+
   /** 출석·미션 보상 수령. 로컬에 즉시 반영하고, 로그인 상태면 계정에도 올린다. */
   const claim = useCallback(
     (kind: ClaimKind) => {
@@ -179,18 +209,25 @@ export default function App() {
         attempts,
       };
 
+      const today = kstDateKey(finishedAt);
+      // setDB 업데이터 밖(계정에 올리는 push 호출)에서도 필요해서 지역 변수로 빼 둔다.
+      let newlyRevivedIds: string[] = [];
+
       setDB((d) => {
         const byId = new Map(d.words.map((w) => [w.id, { ...w, stats: { ...w.stats } }]));
-        // 이 함수 호출 안에서만 유효한 지역 변수 — setDB 업데이터가 두 번 불려도
-        // (예: StrictMode) 중복 집계되지 않는다.
-        let revivedNow = 0;
+        const prevIds = d.dailyMission.date === today ? d.dailyMission.revivedWordIds : [];
+        const revivedIds = new Set(prevIds);
         for (const a of attempts) {
           // 재출제(복습) 시도는 통계를 두 번 깎지 않도록 첫 시도만 반영한다.
           if (a.requeued) continue;
           const w = byId.get(a.wordId);
           if (!w) continue;
-          // "오답 부활전" 미션: 한 번이라도 틀렸던(wrong>0) 단어를 오늘 처음 다시 맞혔는지.
-          if (w.stats.wrong > 0 && a.verdict === 'correct') revivedNow++;
+          // "오답 부활전" 대상(revivalPool)이었던 단어가 이번에 맞았는지. wrong>0만
+          // 보면 이미 다 되살린(streak>=REVIVAL_STREAK_GOAL) 단어를 나중에 다시
+          // 맞힐 때마다 계속 세는 버그가 있었다 — streak 조건까지 같이 봐야 한다.
+          if (w.stats.wrong > 0 && w.stats.streak < REVIVAL_STREAK_GOAL && a.verdict === 'correct') {
+            revivedIds.add(w.id);
+          }
           w.stats.seen += 1;
           w.stats.lastSeenAt = finishedAt;
           w.updatedAt = finishedAt;
@@ -203,20 +240,23 @@ export default function App() {
           }
         }
 
-        const today = kstDateKey(finishedAt);
-        const prevRevived = d.dailyMission.date === today ? d.dailyMission.revived : 0;
+        newlyRevivedIds = [...revivedIds].filter((id) => !prevIds.includes(id));
 
         return {
           ...d,
           words: d.words.map((w) => byId.get(w.id) ?? w),
           history: [...d.history, session].slice(-500),
-          dailyMission: { date: today, revived: prevRevived + revivedNow },
+          dailyMission: { date: today, revivedWordIds: [...revivedIds] },
         };
       });
 
+      if (sync.session && newlyRevivedIds.length > 0) {
+        void pushRevivalEvents(sync.session.user.id, today, newlyRevivedIds);
+      }
+
       setScreen({ name: 'result', session });
     },
-    [],
+    [sync.session],
   );
 
   const navigate = useCallback((tab: Tab) => {
@@ -246,7 +286,7 @@ export default function App() {
   const revivalCount = useMemo(() => revivalPool(words, []).length, [words]);
 
   const revivedToday =
-    db.dailyMission.date === kstDateKey(Date.now()) ? db.dailyMission.revived : 0;
+    db.dailyMission.date === kstDateKey(Date.now()) ? db.dailyMission.revivedWordIds.length : 0;
 
   /** 오답 부활전 시작: 저장된 난이도·시간 설정은 그대로 쓰고 출제 단어만 부활전 풀에서 뽑는다. */
   const startRevival = useCallback(() => {

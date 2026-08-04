@@ -135,7 +135,7 @@ export interface SyncCursor {
 export type ClaimKind = 'attendance' | 'mission_revive';
 
 export interface DB {
-  version: 6;
+  version: 7;
   words: Word[];
   settings: QuizSettings;
   history: SessionResult[];
@@ -156,12 +156,15 @@ export interface DB {
    */
   theme: Theme;
   /**
-   * 오늘(KST) 안에 "예전에 틀렸다가 오늘 처음 다시 맞힌" 단어 수. 날짜가 바뀌면
-   * 0으로 리셋된다. 세션 기록 자체는 동기화하지 않으므로, 하루 중 기기를 바꾸면
-   * 이 진행률은 새 기기에서 0부터 다시 쌓인다 — 출석·배지(전부 words/dailyClaims
-   * 기반)와 달리 미션 진행률만 기기 로컬이라는 뜻이다.
+   * 오늘(KST) 안에 "예전에 틀렸다가 다시 맞힌" 단어의 id 목록. 개수(길이)가 곧
+   * 미션 진행률이다. 카운터가 아니라 id 집합인 이유 두 가지:
+   * 1) 같은 단어를 하루에 여러 번 다시 맞혀도 한 번만 세야 한다(카운터였다면 매번
+   *    올라갔다 — 실제로 있던 버그).
+   * 2) id 집합은 revival_events 테이블과 그대로 합집합 병합이 되어(daily_claims와
+   *    같은 append-only 패턴) 기기를 바꿔도 오늘 진행률이 유지된다. 날짜가 바뀌면
+   *    빈 목록으로 리셋된다.
    */
-  dailyMission: { date: string; revived: number };
+  dailyMission: { date: string; revivedWordIds: string[] };
   /**
    * "YYYY-MM-DD:kind" 문자열 목록. 출석·미션 보상을 받은 날을 기록한다.
    * append-only라 기기 간에는 그냥 합집합으로 병합하면 된다. 로그인 상태면
