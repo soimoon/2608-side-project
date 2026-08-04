@@ -308,21 +308,6 @@ begin
   end if;
 end $$;
 
--- ---------- 단체게임: 닉네임 생성용 카운터 ----------
--- "샴1", "샴2"…처럼 단어별로 순번을 매긴 닉네임을 겹치지 않게 내주기 위한 카운터.
--- insert ... on conflict do update는 그 자체로 원자적이라(행 잠금이 암묵적으로 걸림)
--- 동시에 여러 명이 가입해도 같은 번호가 두 번 나가지 않는다. 단어 목록 자체는
--- src/data/nicknameWords.ts에 있다 — 지금은 임시(고양이 품종)이고, 나중에 앱
--- 디자인 컨셉이 정해지면 그 목록만 통째로 바꾸면 된다.
-create table if not exists nickname_word_counters (
-  word text primary key,
-  used int not null default 0
-);
-
-alter table nickname_word_counters enable row level security;
--- select/insert/update 정책을 두지 않는다 — next_nickname() RPC(security definer)만
--- 건드릴 수 있으면 충분하고, 클라이언트가 카운터를 직접 조작할 이유가 없다.
-
 -- ---------- 단체게임: room_kicks (강제퇴장 쿨타임) ----------
 -- 강제퇴장된 사람이 바로 재입장하지 못하게 10분간 막는다. (room_id, user_id) 기본키라
 -- 같은 사람을 다시 강제퇴장해도 kicked_at 갱신만 될 뿐 여러 행이 쌓이지 않는다.
@@ -350,16 +335,29 @@ language sql stable as $$
   select (extract(epoch from clock_timestamp()) * 1000)::bigint;
 $$;
 
--- p_word(예: '샴')를 받아 '샴1', '샴2'…처럼 그 단어의 다음 순번을 붙인 닉네임을 돌려준다.
--- insert ... on conflict do update가 통째로 원자적이라 별도 잠금 없이 동시 요청에도 안전하다.
+-- p_word(예: '샴')를 받아 '샴1', '샴2'…중 아직 아무도 안 쓰는 가장 작은 번호를 붙여
+-- 돌려준다. 카운터를 따로 두지 않고 profiles.display_name을 직접 확인한다 — 그래야
+-- 제시만 해보고 저장은 안 한 이름(리롤 등)은 번호를 태우지 않고, 누군가 닉네임을
+-- 바꿔서 번호가 비면 그 번호가 자연스럽게 다시 나온다("꽉 채워서 쓰기").
+-- 동시에 두 명이 같은 빈 번호를 제시받을 가능성은 이론상 있지만(레이스), 닉네임은
+-- 애초에 전역 유일성을 강제하지 않는 값이라 무해하다 — 아주 드물게 겹쳐도 그냥
+-- 두 사람이 같은 이름을 쓰게 될 뿐이다.
 create or replace function next_nickname(p_word text) returns text
 language plpgsql security definer set search_path = public as $$
-declare n int;
+declare n int := 1;
+declare candidate text;
 begin
-  insert into nickname_word_counters (word, used) values (p_word, 1)
-    on conflict (word) do update set used = nickname_word_counters.used + 1
-    returning used into n;
-  return p_word || n::text;
+  loop
+    candidate := p_word || n::text;
+    exit when not exists (select 1 from profiles where display_name = candidate);
+    n := n + 1;
+    -- 이 단어를 만 명 가까이 쓰는 경우는 사실상 없지만, 혹시 몰라 무한루프 대신
+    -- 임의의 큰 번호로 안전하게 빠져나간다.
+    if n > 9999 then
+      return p_word || (10000 + floor(random() * 90000))::int::text;
+    end if;
+  end loop;
+  return candidate;
 end;
 $$;
 

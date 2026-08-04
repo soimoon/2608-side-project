@@ -159,7 +159,7 @@ export default function ProfileScreen({
 
       {sync.session && (
         <div className="row nickname-row">
-          <span className="muted">단체게임 닉네임</span>
+          <span className="muted">닉네임</span>
           {editingNickname ? (
             <>
               <input
@@ -192,7 +192,7 @@ export default function ProfileScreen({
       )}
 
       <header className="hero">
-        <h1>프로필</h1>
+        <h1>{nicknameSet && nickname ? `${nickname}님` : '프로필'}</h1>
       </header>
 
       <div className="stat-grid">

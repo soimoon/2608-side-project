@@ -312,9 +312,10 @@ export async function sendMessage(
 }
 
 /**
- * 닉네임(profiles.display_name). 단체게임에서 다른 참가자에게 보이는 이름이 이거다.
- * 로그인 제공자의 실명에 기대지 않기 위해, 계정마다 한 번은 반드시 확정해야 한다
- * (nickname_set=false면 group 화면 진입 시 설정 모달을 강제로 띄운다).
+ * 앱 전체에서 쓰는 닉네임(profiles.display_name). 프로필 화면과 단체게임 양쪽에
+ * 보인다. 로그인 제공자의 실명에 기대지 않기 위해, 계정마다 한 번은 반드시
+ * 확정해야 한다(nickname_set=false면 단체게임 화면 진입 시 설정 모달을 강제로 띄운다
+ * — 지금은 그 화면에 처음 들어갈 때가 사실상 첫 확정 시점이다).
  */
 export interface NicknameStatus {
   displayName: string | null;

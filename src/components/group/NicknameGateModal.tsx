@@ -47,9 +47,10 @@ export default function NicknameGateModal({ onConfirm }: Props) {
   return (
     <div className="modal-overlay">
       <div className="modal">
-        <h3>단체게임 닉네임</h3>
+        <h3>닉네임</h3>
         <p className="muted">
-          다른 참가자에게 보일 이름입니다. 마음에 안 들면 아래를 직접 바꿔도 됩니다.
+          이 앱에서 회원님을 나타낼 이름입니다. 단체게임에서 다른 참가자에게도 보여요.
+          마음에 안 들면 아래를 직접 바꿔도 됩니다.
         </p>
 
         <label className="field">
