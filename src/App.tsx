@@ -5,13 +5,14 @@ import { useCloudSync } from './lib/useCloudSync';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
 import { pullDailyClaims, pullTheme, pushDailyClaim, pushTheme } from './lib/sync';
 import { claimKey, kstDateKey } from './lib/attendance';
-import { allDeckNames } from './lib/select';
+import { allDeckNames, pickRevivalWords, revivalPool } from './lib/select';
 import BottomNav, { type Tab } from './components/BottomNav';
 import ProfileScreen from './components/ProfileScreen';
 import WordsHub from './components/WordsHub';
 import WordManager from './components/WordManager';
 import StudyList from './components/StudyList';
 import GroupPlaceholder from './components/GroupPlaceholder';
+import QuizHub from './components/QuizHub';
 import SetupScreen from './components/SetupScreen';
 import QuizScreen from './components/QuizScreen';
 import ResultScreen from './components/ResultScreen';
@@ -22,6 +23,7 @@ type Screen =
   | { name: 'words' }
   | { name: 'study' }
   | { name: 'group' }
+  | { name: 'quizHub' }
   | { name: 'setup' }
   | { name: 'quiz'; words: Word[]; settings: QuizSettings }
   | { name: 'result'; session: SessionResult };
@@ -32,6 +34,7 @@ function tabOf(name: Screen['name']): Tab {
     case 'words':
     case 'study':
       return 'words';
+    case 'quizHub':
     case 'setup':
     case 'quiz':
     case 'result':
@@ -222,7 +225,7 @@ export default function App() {
         setScreen({ name: 'wordsHub' });
         return;
       case 'quiz':
-        setScreen({ name: 'setup' });
+        setScreen({ name: 'quizHub' });
         return;
       case 'group':
         setScreen({ name: 'group' });
@@ -235,7 +238,22 @@ export default function App() {
 
   const goWordsHub = useCallback(() => setScreen({ name: 'wordsHub' }), []);
   const goProfile = useCallback(() => setScreen({ name: 'profile' }), []);
+  const goQuizHub = useCallback(() => setScreen({ name: 'quizHub' }), []);
   const goSetup = useCallback(() => setScreen({ name: 'setup' }), []);
+
+  // 지금 부활전에 나올 수 있는 단어 수. 허브에서 "몇 개가 기다리는지" 보여주는 데 쓴다.
+  // 전체 단어장 대상 — 부활전은 특정 단어장이 아니라 "내가 틀린 것 전부"가 자연스럽다.
+  const revivalCount = useMemo(() => revivalPool(words, []).length, [words]);
+
+  const revivedToday =
+    db.dailyMission.date === kstDateKey(Date.now()) ? db.dailyMission.revived : 0;
+
+  /** 오답 부활전 시작: 저장된 난이도·시간 설정은 그대로 쓰고 출제 단어만 부활전 풀에서 뽑는다. */
+  const startRevival = useCallback(() => {
+    const picked = pickRevivalWords(words, [], dbRef.current.settings.count, dbRef.current.history);
+    if (picked.length === 0) return;
+    startQuiz(picked, dbRef.current.settings);
+  }, [words, startQuiz]);
 
   const body = useMemo(() => {
     switch (screen.name) {
@@ -287,6 +305,16 @@ export default function App() {
         );
       case 'group':
         return <GroupPlaceholder />;
+      case 'quizHub':
+        return (
+          <QuizHub
+            wordCount={words.length}
+            revivalCount={revivalCount}
+            revivedToday={revivedToday}
+            onNormal={goSetup}
+            onRevival={startRevival}
+          />
+        );
       case 'setup':
         return (
           <SetupScreen
@@ -295,7 +323,7 @@ export default function App() {
             settings={db.settings}
             onSettingsChange={setSettings}
             onStart={startQuiz}
-            onBack={goProfile}
+            onBack={goQuizHub}
           />
         );
       case 'quiz':
@@ -305,7 +333,7 @@ export default function App() {
             settings={screen.settings}
             pronunciations={db.pronunciations}
             onFinish={finishQuiz}
-            onAbort={goSetup}
+            onAbort={goQuizHub}
           />
         );
       case 'result':
@@ -336,7 +364,11 @@ export default function App() {
     cachePronunciations,
     goWordsHub,
     goProfile,
+    goQuizHub,
     goSetup,
+    revivalCount,
+    revivedToday,
+    startRevival,
   ]);
 
   return (

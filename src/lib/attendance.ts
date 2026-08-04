@@ -3,6 +3,13 @@ import type { ClaimKind, Word } from '../types';
 /** 오답 부활전 미션의 목표 개수. */
 export const MISSION_TARGET = 5;
 
+/**
+ * 틀렸던 단어를 "부활했다"고 인정하는 연속 정답 수. 부활 배지(달성)와 오답 부활전
+ * 출제 대상(미달성)이 이 값 하나를 기준으로 정확히 갈리므로, 두 곳이 어긋나지
+ * 않도록 상수를 공유한다.
+ */
+export const REVIVAL_STREAK_GOAL = 5;
+
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 /**
@@ -45,9 +52,9 @@ export function attendanceStreak(claims: string[], kind: ClaimKind, nowMs: numbe
   return streak;
 }
 
-/** 한 번이라도 틀렸다가(wrong>0) 다시 5연속 정답을 쌓은, 즉 "부활시킨" 단어 수. */
+/** 한 번이라도 틀렸다가(wrong>0) 다시 연속 정답을 목표만큼 쌓은, 즉 "부활시킨" 단어 수. */
 export function revivedWordCount(words: Word[]): number {
-  return words.filter((w) => w.stats.wrong > 0 && w.stats.streak >= 5).length;
+  return words.filter((w) => w.stats.wrong > 0 && w.stats.streak >= REVIVAL_STREAK_GOAL).length;
 }
 
 /** 누적 정답 문제 수. 학습량 배지 산정 기준. */
