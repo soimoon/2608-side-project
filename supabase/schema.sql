@@ -790,18 +790,25 @@ begin
 end;
 $$;
 
--- 스케줄상 게임이 끝났을 때만 동작한다(그 전에 부르면 조용히 무시). 누가 불러도
--- 안전하다 — 여러 클라이언트가 동시에 불러도 status='playing' 검사가 중복 실행을 막는다.
+-- 스케줄상 게임이 끝났을 때, 또는 신선한(60초 이내 하트비트) 참가자가 1명 이하로
+-- 남았을 때 동작한다(그 전엔 조용히 무시). 후자는 다른 사람들이 다 나가서 혼자 남은
+-- 사람이 시계가 다 돌 때까지 기다릴 필요 없이 그 자리에서 끝내고 자동으로 1등
+-- 처리하기 위해서다 — 남은 1명 기준으로 rankPlayers를 매기면 자연히 1등이 된다.
+-- 누가 불러도 안전하다 — 여러 클라이언트가 동시에 불러도 status='playing' 검사가
+-- 중복 실행을 막는다.
 create or replace function finish_game(p_room_id uuid) returns void
 language plpgsql security definer set search_path = public as $$
-declare r game_rooms; end_at timestamptz;
+declare r game_rooms; end_at timestamptz; fresh_count int;
 begin
   select * into r from game_rooms where id = p_room_id for update;
   if r is null or r.status <> 'playing' or r.words is null then return; end if;
 
+  select count(*) into fresh_count from room_players
+    where room_id = p_room_id and last_seen_at > now() - interval '60 seconds';
+
   end_at := r.started_at + (r.lead_in_ms + jsonb_array_length(r.words) * (r.answer_ms + r.reveal_ms))
             * interval '1 millisecond';
-  if now() < end_at then return; end if;
+  if now() < end_at and fresh_count > 1 then return; end if;
 
   update game_rooms set status = 'lobby', finished_at = now(), last_activity_at = now()
     where id = p_room_id;

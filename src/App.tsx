@@ -378,7 +378,7 @@ export default function App() {
             roomId={screen.roomId}
             sync={sync}
             onEnded={goGroupResult}
-            onAbort={() => goRoom(screen.roomId)}
+            onLeft={goGroupList}
           />
         );
       case 'groupResult':

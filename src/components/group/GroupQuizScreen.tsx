@@ -7,12 +7,16 @@ import type { Schedule } from '../../lib/lockstep';
 import { judge } from '../../lib/judge';
 import { hintStageAt, progressiveMask } from '../../lib/groupMask';
 import { correctScore, fastestCorrectUserId, rankPlayers } from '../../lib/groupScore';
+import { FRESH_WINDOW_MS, leaveRoom } from '../../lib/groupApi';
 
 interface Props {
   roomId: string;
   sync: CloudSync;
   onEnded: (roomId: string, gameNo: number) => void;
-  onAbort: () => void;
+  /** 진짜로 방을 나간 뒤(leave_room) 호출된다 — 방 목록으로 돌려보내야 한다.
+   *  로비 화면으로만 돌려보내면 room.status가 여전히 'playing'이라 그 화면이
+   *  바로 다시 게임 화면으로 튕겨 보낸다(실제로 있었던 버그). */
+  onLeft: () => void;
 }
 
 const VERDICT_TEXT: Record<Verdict, string> = {
@@ -28,7 +32,7 @@ const VERDICT_TEXT: Record<Verdict, string> = {
  * 전진한다. 제어 흐름이 근본적으로 다르므로 별도 컴포넌트로 뒀다(계획 문서 참고).
  * 마스크 슬롯·타이머 바 JSX만 QuizScreen과 같은 CSS 클래스를 그대로 재사용한다.
  */
-export default function GroupQuizScreen({ roomId, sync, onEnded, onAbort }: Props) {
+export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props) {
   const userId = sync.session?.user.id;
   const { room, players, answers, loading, submit, finish } = useGroupGame(roomId, userId);
 
@@ -86,6 +90,24 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onAbort }: Prop
     endedRef.current = true;
     void finish().then(() => onEnded(roomId, room.gameNo));
   }, [phase.kind, room, finish, onEnded, roomId]);
+
+  // 다른 사람들이 다 나가서(또는 접속이 끊겨서) 신선한 참가자가 1명 이하로 남으면,
+  // 남은 사람이 시계가 다 돌 때까지 혼자 기다릴 필요 없이 그 자리에서 게임을 끝내고
+  // 자동으로 1등 처리한다. finish_game이 이 경우엔 스케줄 종료 전이어도 허용한다
+  // (schema.sql 참고). 신선도 판정은 join_room 등 서버 쪽과 같은 60초 창을 쓴다.
+  const freshCount = players.filter((p) => Date.now() - p.lastSeenAt < FRESH_WINDOW_MS).length;
+  useEffect(() => {
+    if (endedRef.current || !room) return;
+    if (phase.kind === 'not-started' || phase.kind === 'ended') return;
+    if (freshCount > 1) return;
+    endedRef.current = true;
+    void finish().then(() => onEnded(roomId, room.gameNo));
+  }, [freshCount, phase.kind, room, finish, onEnded, roomId]);
+
+  async function handleLeave() {
+    await leaveRoom(roomId);
+    onLeft();
+  }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key !== 'Enter') return;
@@ -193,7 +215,7 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onAbort }: Prop
   return (
     <div className={`screen quiz`}>
       <div className="quiz-top">
-        <button className="btn ghost sm" onClick={onAbort}>
+        <button className="btn ghost sm" onClick={() => void handleLeave()}>
           나가기
         </button>
         <span className="progress-text">
