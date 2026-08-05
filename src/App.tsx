@@ -20,6 +20,8 @@ import WordManager from './components/WordManager';
 import StudyList from './components/StudyList';
 import RoomListScreen from './components/group/RoomListScreen';
 import RoomScreen from './components/group/RoomScreen';
+import GroupQuizScreen from './components/group/GroupQuizScreen';
+import GroupResultScreen from './components/group/GroupResultScreen';
 import QuizHub from './components/QuizHub';
 import SetupScreen from './components/SetupScreen';
 import QuizScreen from './components/QuizScreen';
@@ -32,6 +34,8 @@ type Screen =
   | { name: 'study' }
   | { name: 'group' }
   | { name: 'room'; roomId: string }
+  | { name: 'groupQuiz'; roomId: string }
+  | { name: 'groupResult'; roomId: string; gameNo: number }
   | { name: 'quizHub' }
   | { name: 'setup' }
   | { name: 'quiz'; words: Word[]; settings: QuizSettings }
@@ -50,6 +54,8 @@ function tabOf(name: Screen['name']): Tab {
       return 'quiz';
     case 'group':
     case 'room':
+    case 'groupQuiz':
+    case 'groupResult':
       return 'group';
     case 'profile':
       return 'profile';
@@ -285,6 +291,11 @@ export default function App() {
   const goSetup = useCallback(() => setScreen({ name: 'setup' }), []);
   const goGroupList = useCallback(() => setScreen({ name: 'group' }), []);
   const goRoom = useCallback((roomId: string) => setScreen({ name: 'room', roomId }), []);
+  const goGroupQuiz = useCallback((roomId: string) => setScreen({ name: 'groupQuiz', roomId }), []);
+  const goGroupResult = useCallback(
+    (roomId: string, gameNo: number) => setScreen({ name: 'groupResult', roomId, gameNo }),
+    [],
+  );
 
   // 지금 부활전에 나올 수 있는 단어 수. 허브에서 "몇 개가 기다리는지" 보여주는 데 쓴다.
   // 전체 단어장 대상 — 부활전은 특정 단어장이 아니라 "내가 틀린 것 전부"가 자연스럽다.
@@ -351,7 +362,33 @@ export default function App() {
       case 'group':
         return <RoomListScreen sync={sync} onEnterRoom={goRoom} />;
       case 'room':
-        return <RoomScreen roomId={screen.roomId} sync={sync} onBack={goGroupList} />;
+        return (
+          <RoomScreen
+            roomId={screen.roomId}
+            sync={sync}
+            words={words}
+            decks={decks}
+            onBack={goGroupList}
+            onGameStart={goGroupQuiz}
+          />
+        );
+      case 'groupQuiz':
+        return (
+          <GroupQuizScreen
+            roomId={screen.roomId}
+            sync={sync}
+            onEnded={goGroupResult}
+            onAbort={() => goRoom(screen.roomId)}
+          />
+        );
+      case 'groupResult':
+        return (
+          <GroupResultScreen
+            roomId={screen.roomId}
+            gameNo={screen.gameNo}
+            onBackToRoom={() => goRoom(screen.roomId)}
+          />
+        );
       case 'quizHub':
         return (
           <QuizHub
@@ -415,6 +452,8 @@ export default function App() {
     goSetup,
     goGroupList,
     goRoom,
+    goGroupQuiz,
+    goGroupResult,
     revivalCount,
     revivedToday,
     startRevival,
@@ -423,7 +462,9 @@ export default function App() {
   return (
     <div className="app">
       {body}
-      {screen.name !== 'quiz' && <BottomNav active={tabOf(screen.name)} onNavigate={navigate} />}
+      {screen.name !== 'quiz' && screen.name !== 'groupQuiz' && (
+        <BottomNav active={tabOf(screen.name)} onNavigate={navigate} />
+      )}
     </div>
   );
 }

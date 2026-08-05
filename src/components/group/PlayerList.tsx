@@ -27,6 +27,7 @@ export default function PlayerList({ players, hostId, me, isHost, maxPlayers, on
                 {p.userId === hostId && ' 👑'}
                 {p.userId === me && ' (나)'}
               </span>
+              <span className="muted player-source">{p.sourceLabel ? `✓ ${p.sourceLabel}` : '단어장 선택 전'}</span>
               {isHost && p.userId !== me && (
                 <button className="btn ghost sm" onClick={() => onKick(p.userId)}>
                   강제퇴장

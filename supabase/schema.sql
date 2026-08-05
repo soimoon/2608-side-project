@@ -349,6 +349,54 @@ alter table room_kicks enable row level security;
 -- 클라이언트가 "내가 강제퇴장당했는지"를 직접 조회할 필요는 join_room의 에러 메시지로
 -- 충분하다.
 
+-- ---------- 단체게임: room_contributions ----------
+-- 참가자가 이번 판에 낼 단어(자기 단어장 또는 공식 덱, 최대 300개). set_source()로만
+-- 쓰고 start_game()에서만 읽는다 — select 정책이 아예 없다.
+create table if not exists room_contributions (
+  room_id uuid not null references game_rooms on delete cascade,
+  user_id uuid not null references auth.users on delete cascade,
+  words jsonb not null,
+  primary key (room_id, user_id)
+);
+
+alter table room_contributions enable row level security;
+-- select 정책 없음 — 서버(start_game, security definer)만 읽는다.
+
+-- ---------- 단체게임: room_answers ----------
+-- 입력 텍스트는 저장하지 않는다 — select가 전부 공개(true)라 저장하면 남이 제출한
+-- 순간 답을 그대로 베낄 수 있다. verdict/elapsed_ms/points만 남기면 reveal 화면과
+-- 최종 집계에 필요한 건 다 있고, 개인 학습 통계(Word.stats)에는 애초에 안 닿는다
+-- (게임 단어는 클라이언트 타입 자체가 Word가 아닌 GameWord라 경로가 없다).
+create table if not exists room_answers (
+  room_id uuid not null references game_rooms on delete cascade,
+  game_no int not null,
+  round_index int not null,
+  user_id uuid not null references auth.users on delete cascade,
+  verdict text not null check (verdict in ('correct', 'near', 'wrong', 'timeout')),
+  elapsed_ms int not null check (elapsed_ms >= 0),
+  points int not null check (points >= 0 and points <= 1000),
+  created_at timestamptz not null default now(),
+  -- 복합 PK가 재제출·정정을 원천 차단한다(update/delete 정책도 없음 — append-only).
+  primary key (room_id, game_no, round_index, user_id)
+);
+
+create index if not exists room_answers_room_game on room_answers (room_id, game_no);
+
+alter table room_answers enable row level security;
+
+create policy "room_answers_select_all" on room_answers
+  for select using (true);
+-- insert 정책 없음 — submit_answer RPC로만(서버가 시간·점수를 직접 계산해 위조를 막는다).
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'room_answers'
+  ) then
+    alter publication supabase_realtime add table room_answers;
+  end if;
+end $$;
+
 -- ---------- 단체게임: RPC ----------
 -- 전부 security definer + search_path 고정 + authenticated 전용(anon 차단). RLS의
 -- "select는 전부 공개, 쓰기는 정책 없음" 조합과 짝을 이뤄, 정원·방장이전 같은 경쟁
@@ -571,6 +619,193 @@ begin
 end;
 $$;
 
+-- 참가자가 이번 판에 낼 단어장을 고른다(자기 단어장 또는 공식 덱). p_words는
+-- [{en, ko:[...]}] 형태. room_contributions에 저장하고, room_players.source_kind/label을
+-- 같이 채워 "누가 아직 안 골랐는지"를 방 화면에서 바로 볼 수 있게 한다. 시작 전까지는
+-- 몇 번이고 다시 골라도 된다(upsert).
+create or replace function set_source(p_room_id uuid, p_kind text, p_label text, p_words jsonb)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  if p_kind not in ('mine', 'official') then raise exception 'BAD_KIND'; end if;
+  if jsonb_typeof(p_words) is distinct from 'array' then raise exception 'BAD_WORDS'; end if;
+  n := jsonb_array_length(p_words);
+  if n < 1 then raise exception 'EMPTY_WORDS'; end if;
+  if n > 300 then raise exception 'TOO_MANY_WORDS'; end if;
+  if not exists (select 1 from room_players where room_id = p_room_id and user_id = auth.uid()) then
+    raise exception 'NOT_MEMBER';
+  end if;
+
+  insert into room_contributions (room_id, user_id, words)
+  values (p_room_id, auth.uid(), p_words)
+  on conflict (room_id, user_id) do update set words = excluded.words;
+
+  update room_players set source_kind = p_kind, source_label = nullif(btrim(coalesce(p_label, '')), '')
+    where room_id = p_room_id and user_id = auth.uid();
+
+  update game_rooms set last_activity_at = now() where id = p_room_id;
+end;
+$$;
+
+-- 방장이 게임을 시작한다. 신선한 참가자 2명 이상 + 전원 단어장 선택 완료를 검사하고,
+-- 참가자별로 균등하게(quota) 무작위 추출해 합친 뒤 셔플해서 game_rooms.words에 동결한다
+-- ("from" 필드에 낸 사람 닉네임을 같이 넣어 reveal 화면에서 "OO가 낸 문제"로 보여준다).
+-- round_count 컬럼은 건드리지 않는다 — check(10|20|30) 제약이 있어서, 실제 이번 판의
+-- 라운드 수는 그냥 jsonb_array_length(words)를 쓴다(단어가 모자라면 자연히 줄어든다).
+create or replace function start_game(p_room_id uuid)
+returns game_rooms
+language plpgsql security definer set search_path = public as $$
+declare
+  r game_rooms;
+  fresh_count int;
+  unselected_count int;
+  answer_ms_val int;
+  words_final jsonb := '[]'::jsonb;
+  contributor record;
+  quota int;
+  base_quota int;
+  extra_n int;
+  picked jsonb;
+  seen_en text[] := '{}';
+begin
+  select * into r from game_rooms where id = p_room_id for update;
+  if r is null then raise exception 'ROOM_NOT_FOUND'; end if;
+  if r.host_id is distinct from auth.uid() then raise exception 'NOT_HOST'; end if;
+  if r.status = 'playing' then raise exception 'ALREADY_PLAYING'; end if;
+
+  select count(*) into fresh_count from room_players
+    where room_id = p_room_id and last_seen_at > now() - interval '60 seconds';
+  if fresh_count < 2 then raise exception 'NOT_ENOUGH_PLAYERS'; end if;
+
+  select count(*) into unselected_count from room_players
+    where room_id = p_room_id and last_seen_at > now() - interval '60 seconds'
+      and source_kind is null;
+  if unselected_count > 0 then raise exception 'NOT_ALL_SELECTED'; end if;
+
+  answer_ms_val := case r.speed when 'fast' then 8000 when 'relaxed' then 16000 else 12000 end;
+  base_quota := r.round_count / fresh_count;
+  extra_n := r.round_count % fresh_count;
+
+  for contributor in
+    select rp.user_id, rp.display_name, rc.words,
+           (row_number() over (order by rp.joined_at) - 1)::int as rn
+    from room_players rp
+    join room_contributions rc on rc.room_id = rp.room_id and rc.user_id = rp.user_id
+    where rp.room_id = p_room_id and rp.last_seen_at > now() - interval '60 seconds'
+  loop
+    quota := base_quota + (case when contributor.rn < extra_n then 1 else 0 end);
+    if quota <= 0 then continue; end if;
+
+    select jsonb_agg(jsonb_build_object('en', value ->> 'en', 'ko', value -> 'ko', 'from', contributor.display_name))
+      into picked
+      from (
+        select value from jsonb_array_elements(contributor.words)
+        where lower(value ->> 'en') <> all (seen_en)
+        order by random()
+        limit quota
+      ) s;
+
+    if picked is not null then
+      words_final := words_final || picked;
+      select array_agg(lower(x ->> 'en')) into seen_en from (select jsonb_array_elements(words_final) x) s2;
+    end if;
+  end loop;
+
+  if jsonb_array_length(words_final) < 2 then raise exception 'NOT_ENOUGH_WORDS'; end if;
+
+  -- 참가자 순서대로 몰려 나오지 않게 최종 출제 순서를 섞는다.
+  select coalesce(jsonb_agg(value), '[]'::jsonb) into words_final
+    from (select value from jsonb_array_elements(words_final) order by random()) s;
+
+  update game_rooms set
+    status = 'playing',
+    game_no = game_no + 1,
+    started_at = now(),
+    finished_at = null,
+    answer_ms = answer_ms_val,
+    reveal_ms = 4000,
+    lead_in_ms = 3000,
+    hint_ratio = 0.2,
+    words = words_final,
+    mask_seed = (random() * 2147483647)::int,
+    last_activity_at = now()
+  where id = p_room_id
+  returning * into r;
+
+  return r;
+end;
+$$;
+
+-- 한 라운드의 답을 낸다. p_input은 지금은 검증에 안 쓰지만(클라이언트 판정을 신뢰하는
+-- v1) 시그니처에 처음부터 포함해 둔다 — 나중에 서버 판정(judge.ts와 동일 규칙)을
+-- 추가할 때 클라이언트 호출부가 한 글자도 안 바뀌게 하려는 목적이다. 시간·점수는
+-- 클라이언트가 보고하지 않는다: 서버가 started_at + 라운드 길이로 직접 계산한다.
+create or replace function submit_answer(p_room_id uuid, p_round_index int, p_input text, p_verdict text)
+returns room_answers
+language plpgsql security definer set search_path = public as $$
+declare
+  r game_rooms;
+  rs timestamptz;
+  el int;
+  ratio numeric;
+  pts int;
+begin
+  select * into r from game_rooms where id = p_room_id;
+  if r is null or r.status <> 'playing' then raise exception 'NOT_PLAYING'; end if;
+  if not exists (select 1 from room_players where room_id = p_room_id and user_id = auth.uid()) then
+    raise exception 'NOT_MEMBER';
+  end if;
+  if p_verdict not in ('correct', 'near', 'wrong', 'timeout') then raise exception 'BAD_VERDICT'; end if;
+  if r.words is null or p_round_index < 0 or p_round_index >= jsonb_array_length(r.words) then
+    raise exception 'BAD_ROUND';
+  end if;
+
+  rs := r.started_at + (r.lead_in_ms + p_round_index * (r.answer_ms + r.reveal_ms)) * interval '1 millisecond';
+  -- 답변 윈도우 + 700ms 지연 유예(네트워크 지연 여유). 이 밖의 제출은 라운드가
+  -- 강제 전환된 뒤의 뒤늦은 요청이거나 미래 라운드를 미리 찌르는 시도다.
+  if now() < rs or now() > rs + (r.answer_ms + 700) * interval '1 millisecond' then
+    raise exception 'WINDOW_CLOSED';
+  end if;
+
+  el := greatest(0, least(r.answer_ms, (extract(epoch from (now() - rs)) * 1000)::int));
+  ratio := el::numeric / greatest(r.answer_ms, 1);
+
+  -- src/lib/groupScore.ts의 correctScore()와 정확히 같은 공식이어야 한다(둘이 어긋나면
+  -- "화면엔 정답인데 점수가 다른" 최악의 UX가 나온다 — 고칠 땐 양쪽을 같이 고칠 것).
+  pts := case
+    when p_verdict = 'near' then 150
+    when p_verdict <> 'correct' then 0
+    when ratio < 0.5 then round(1000 - 300 * (ratio / 0.5))
+    when ratio < 0.75 then round(650 - 200 * ((ratio - 0.5) / 0.25))
+    else round(400 - 150 * ((ratio - 0.75) / 0.25))
+  end;
+
+  return query
+    insert into room_answers (room_id, game_no, round_index, user_id, verdict, elapsed_ms, points)
+    values (p_room_id, r.game_no, p_round_index, auth.uid(), p_verdict, el, pts)
+    returning *;
+end;
+$$;
+
+-- 스케줄상 게임이 끝났을 때만 동작한다(그 전에 부르면 조용히 무시). 누가 불러도
+-- 안전하다 — 여러 클라이언트가 동시에 불러도 status='playing' 검사가 중복 실행을 막는다.
+create or replace function finish_game(p_room_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare r game_rooms; end_at timestamptz;
+begin
+  select * into r from game_rooms where id = p_room_id for update;
+  if r is null or r.status <> 'playing' or r.words is null then return; end if;
+
+  end_at := r.started_at + (r.lead_in_ms + jsonb_array_length(r.words) * (r.answer_ms + r.reveal_ms))
+            * interval '1 millisecond';
+  if now() < end_at then return; end if;
+
+  update game_rooms set status = 'lobby', finished_at = now(), last_activity_at = now()
+    where id = p_room_id;
+end;
+$$;
+
 -- anon 역할은 auth.uid()가 null이 되어 위 함수들의 "= auth.uid()" 비교가 전부 NULL(=false로
 -- 취급)이 되는데, plpgsql의 `if <null> then`은 참으로도 거짓으로도 걸리지 않아 검사를
 -- 조용히 건너뛸 수 있다(예: kick_player의 NOT_HOST 검사). 그래서 검사 로직을 더 두는 대신
@@ -585,6 +820,10 @@ revoke execute on function leave_room(uuid) from public;
 revoke execute on function kick_player(uuid, uuid) from public;
 revoke execute on function heartbeat(uuid) from public;
 revoke execute on function reconcile_room(uuid) from public;
+revoke execute on function set_source(uuid, text, text, jsonb) from public;
+revoke execute on function start_game(uuid) from public;
+revoke execute on function submit_answer(uuid, int, text, text) from public;
+revoke execute on function finish_game(uuid) from public;
 
 grant execute on function server_now_ms() to authenticated;
 grant execute on function next_nickname(text) to authenticated;
@@ -596,6 +835,10 @@ grant execute on function leave_room(uuid) to authenticated;
 grant execute on function kick_player(uuid, uuid) to authenticated;
 grant execute on function heartbeat(uuid) to authenticated;
 grant execute on function reconcile_room(uuid) to authenticated;
+grant execute on function set_source(uuid, text, text, jsonb) to authenticated;
+grant execute on function start_game(uuid) to authenticated;
+grant execute on function submit_answer(uuid, int, text, text) to authenticated;
+grant execute on function finish_game(uuid) to authenticated;
 
 -- ---------- 마이그레이션: words.ko  text → text[] ----------
 -- 이미 이 스키마로 프로젝트를 만들어서 words.ko가 text 컬럼인 상태라면, 위 CREATE TABLE은

@@ -1,20 +1,28 @@
 import { useEffect, useState } from 'react';
+import type { Word } from '../../types';
 import type { CloudSync } from '../../lib/useCloudSync';
 import { useGroupRoom } from '../../lib/useGroupRoom';
 import { useNickname } from '../../lib/useNickname';
+import { startGame } from '../../lib/groupApi';
 import PlayerList from './PlayerList';
 import ChatPanel from './ChatPanel';
 import NicknameGateModal from './NicknameGateModal';
-import DebugLockstepStrip from './DebugLockstepStrip';
+import SourcePicker from './SourcePicker';
+
+const SPEED_LABEL: Record<string, string> = { fast: '빠름(8초)', normal: '보통(12초)', relaxed: '여유(16초)' };
 
 interface Props {
   roomId: string;
   sync: CloudSync;
+  words: Word[];
+  decks: string[];
   onBack: () => void;
+  /** 게임이 시작되면(room.status === 'playing') 호출된다 — App.tsx가 GroupQuizScreen으로 넘긴다. */
+  onGameStart: (roomId: string) => void;
 }
 
-/** 방 화면. 참가자 목록 + 채팅. 게임 시작(다음 단계)이 붙기 전까지는 로비 상태로만 존재한다. */
-export default function RoomScreen({ roomId, sync, onBack }: Props) {
+/** 방 화면. 참가자 목록 + 단어장 선택 + 채팅. 게임이 시작되면 GroupQuizScreen으로 넘어간다. */
+export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameStart }: Props) {
   const session = sync.session;
   const userId = session?.user.id;
   const { displayName, nicknameSet, loading: nickLoading, save: saveNickname } = useNickname(userId);
@@ -24,6 +32,8 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
   const { room, players, messages, loading, joinError, roomGone, kickedOut, isHost, send, kick, exit } =
     useGroupRoom(roomId, effectiveUserId, displayName ?? '플레이어');
   const [authError, setAuthError] = useState('');
+  const [startError, setStartError] = useState('');
+  const [starting, setStarting] = useState(false);
 
   function trySignIn() {
     setAuthError('');
@@ -38,9 +48,23 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync.configured, session, sync.signInAnonymously]);
 
+  // 방장이 시작을 누르면(또는 다른 사람이 시작한 걸 감지하면) 전원이 같은 순간에 넘어간다.
+  useEffect(() => {
+    if (room?.status === 'playing') onGameStart(roomId);
+  }, [room?.status, roomId, onGameStart]);
+
   async function handleLeave() {
     await exit();
     onBack();
+  }
+
+  async function handleStart() {
+    setStarting(true);
+    setStartError('');
+    const res = await startGame(roomId);
+    setStarting(false);
+    if (!res.ok) setStartError(res.error ?? '시작하지 못했습니다.');
+    // 성공하면 room.status가 realtime으로 'playing'이 되어 위 useEffect가 알아서 넘긴다.
   }
 
   if (!session) {
@@ -129,6 +153,16 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
     );
   }
 
+  const me = players.find((p) => p.userId === userId);
+  const freshCount = players.length; // fetchPlayers는 신선한 참가자만 돌려주지 않으므로, 표시는 전체 인원 기준.
+  const allSelected = players.length > 0 && players.every((p) => Boolean(p.sourceLabel));
+  const canStart = isHost && freshCount >= 2 && allSelected && !starting;
+  const startBlockedReason = !allSelected
+    ? '전원이 단어장을 골라야 시작할 수 있습니다.'
+    : freshCount < 2
+      ? '최소 2명이 있어야 시작할 수 있습니다.'
+      : '';
+
   return (
     <div className="screen">
       <div className="topbar">
@@ -139,6 +173,10 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
         <div className="topbar-right" />
       </div>
 
+      <p className="muted">
+        {SPEED_LABEL[room.speed]} · {room.roundCount}문제
+      </p>
+
       <PlayerList
         players={players}
         hostId={room.hostId}
@@ -148,16 +186,33 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
         onKick={kick}
       />
 
+      <SourcePicker
+        roomId={roomId}
+        words={words}
+        decks={decks}
+        currentLabel={me?.sourceLabel ?? null}
+        onSelected={() => {
+          /* room_players 갱신은 realtime 구독이 알아서 반영한다 */
+        }}
+      />
+
       {isHost ? (
-        <p className="muted">방장만 게임을 시작할 수 있습니다. (게임 모드는 곧 추가됩니다)</p>
+        <div className="sticky-actions">
+          {startBlockedReason && <p className="muted">{startBlockedReason}</p>}
+          {startError && (
+            <p className="notice-bar" role="status">
+              {startError}
+            </p>
+          )}
+          <button className="btn primary lg" disabled={!canStart} onClick={handleStart}>
+            {starting ? '시작하는 중…' : '게임 시작'}
+          </button>
+        </div>
       ) : (
         <p className="muted">방장이 게임을 시작하기를 기다리는 중입니다.</p>
       )}
 
       <ChatPanel messages={messages} me={userId ?? ''} onSend={send} />
-
-      {/* Phase 2 검증용. 진짜 게임 스케줄이 붙으면(Phase 3) 지운다. */}
-      <DebugLockstepStrip roomCreatedAt={room.createdAt} />
     </div>
   );
 }

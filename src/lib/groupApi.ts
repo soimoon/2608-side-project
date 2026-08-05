@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 import { randomNicknameWord } from '../data/nicknameWords';
+import type { Verdict } from '../types';
+import type { GameWord } from '../data/decks';
 
 /**
  * 단체게임 방(game_rooms/room_players/room_messages) RPC 래퍼.
@@ -40,6 +42,19 @@ export interface GameRoom {
   /** 방 생성 시각. 모든 클라이언트가 DB에서 같은 값을 읽으므로, 아직 게임이 시작되지
    *  않은 상태에서도(예: Phase 2 디버그 스케줄) 기기 간에 공유되는 기준 시각으로 쓴다. */
   createdAt: number;
+  /**
+   * 아래는 start_game이 시작 순간에 동결하는 값들 — status가 'lobby'면 전부 null이다.
+   * 락스텝 스케줄(lockstep.ts의 Schedule)이 그대로 이 필드들로부터 만들어진다.
+   */
+  startedAt: number | null;
+  finishedAt: number | null;
+  answerMs: number | null;
+  revealMs: number | null;
+  leadInMs: number | null;
+  hintRatio: number | null;
+  /** 동결된 출제 단어. from은 그 단어를 낸 참가자 닉네임(reveal 화면 표시용). */
+  words: (GameWord & { from: string })[] | null;
+  maskSeed: number | null;
 }
 
 export interface RoomPlayer {
@@ -118,7 +133,16 @@ interface GameRoomRow {
   round_count: number;
   game_no: number;
   created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  answer_ms: number | null;
+  reveal_ms: number | null;
+  lead_in_ms: number | null;
+  hint_ratio: number | null;
+  words: (GameWord & { from: string })[] | null;
+  mask_seed: number | null;
 }
+
 
 function fromRoomRow(r: GameRoomRow): GameRoom {
   return {
@@ -131,6 +155,14 @@ function fromRoomRow(r: GameRoomRow): GameRoom {
     roundCount: r.round_count,
     gameNo: r.game_no,
     createdAt: new Date(r.created_at).getTime(),
+    startedAt: r.started_at ? new Date(r.started_at).getTime() : null,
+    finishedAt: r.finished_at ? new Date(r.finished_at).getTime() : null,
+    answerMs: r.answer_ms,
+    revealMs: r.reveal_ms,
+    leadInMs: r.lead_in_ms,
+    hintRatio: r.hint_ratio,
+    words: r.words,
+    maskSeed: r.mask_seed,
   };
 }
 
@@ -222,7 +254,9 @@ export async function fetchRoom(roomId: string): Promise<GameRoom | null> {
   try {
     const { data, error } = await supabase
       .from('game_rooms')
-      .select('id, title, host_id, max_players, status, speed, round_count, game_no, created_at')
+      .select(
+        'id, title, host_id, max_players, status, speed, round_count, game_no, created_at, started_at, finished_at, answer_ms, reveal_ms, lead_in_ms, hint_ratio, words, mask_seed',
+      )
       .eq('id', roomId)
       .maybeSingle();
     if (error || !data) return null;
@@ -399,5 +433,146 @@ export async function setNickname(userId: string, nickname: string): Promise<Api
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
+  }
+}
+
+// ---------- Phase 3: 단어장 선택 + 게임 플레이 ----------
+
+/**
+ * 참가자가 이번 판에 낼 단어장을 고른다(최대 300개). 시작 전까지 몇 번이고 다시
+ * 골라도 된다 — set_source RPC가 upsert라 값을 그대로 덮어쓴다.
+ */
+export async function setSource(
+  roomId: string,
+  kind: 'mine' | 'official',
+  label: string,
+  words: GameWord[],
+): Promise<ApiResult<void>> {
+  if (!supabase) return { ok: false, error: '클라우드 설정이 없습니다.' };
+  try {
+    const { error } = await supabase.rpc('set_source', {
+      p_room_id: roomId,
+      p_kind: kind,
+      p_label: label,
+      p_words: words,
+    });
+    if (error) return { ok: false, error: mapSetSourceError(error.message) };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+function mapSetSourceError(message?: string): string {
+  if (message?.includes('EMPTY_WORDS')) return '단어가 없는 단어장입니다.';
+  if (message?.includes('TOO_MANY_WORDS')) return '단어장이 너무 큽니다(최대 300개).';
+  return message ?? '단어장을 등록하지 못했습니다.';
+}
+
+/**
+ * 방장이 게임을 시작한다. 서버가 참가자별로 균등 추출해 단어를 동결하고 방 상태를
+ * 'playing'으로 바꾼다 — 성공하면 돌아온 GameRoom.words/startedAt으로 곧바로
+ * 락스텝 스케줄을 만들 수 있다.
+ */
+export async function startGame(roomId: string): Promise<ApiResult<GameRoom>> {
+  if (!supabase) return { ok: false, error: '클라우드 설정이 없습니다.' };
+  try {
+    const { data, error } = await supabase.rpc('start_game', { p_room_id: roomId });
+    if (error || !data) return { ok: false, error: mapStartGameError(error?.message) };
+    return { ok: true, data: fromRoomRow(data as GameRoomRow) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+function mapStartGameError(message?: string): string {
+  if (message?.includes('NOT_HOST')) return '방장만 시작할 수 있습니다.';
+  if (message?.includes('ALREADY_PLAYING')) return '이미 게임이 진행 중입니다.';
+  if (message?.includes('NOT_ENOUGH_PLAYERS')) return '최소 2명이 있어야 시작할 수 있습니다.';
+  if (message?.includes('NOT_ALL_SELECTED')) return '아직 단어장을 안 고른 참가자가 있습니다.';
+  if (message?.includes('NOT_ENOUGH_WORDS')) return '출제할 단어가 너무 적습니다.';
+  return message ?? '게임을 시작하지 못했습니다.';
+}
+
+export interface RoomAnswer {
+  roundIndex: number;
+  userId: string;
+  verdict: Verdict;
+  elapsedMs: number;
+  points: number;
+}
+
+interface RoomAnswerRow {
+  round_index: number;
+  user_id: string;
+  verdict: Verdict;
+  elapsed_ms: number;
+  points: number;
+}
+
+/** 한 라운드의 답을 제출한다. 시간·점수는 서버가 직접 계산해 돌려준다(클라이언트가 보고하지 않음). */
+export async function submitAnswer(
+  roomId: string,
+  roundIndex: number,
+  input: string,
+  verdict: Verdict,
+): Promise<ApiResult<RoomAnswer>> {
+  if (!supabase) return { ok: false, error: '클라우드 설정이 없습니다.' };
+  try {
+    const { data, error } = await supabase.rpc('submit_answer', {
+      p_room_id: roomId,
+      p_round_index: roundIndex,
+      p_input: input,
+      p_verdict: verdict,
+    });
+    if (error || !data) return { ok: false, error: error?.message ?? '제출하지 못했습니다.' };
+    const row = data as RoomAnswerRow;
+    return {
+      ok: true,
+      data: {
+        roundIndex: row.round_index,
+        userId: row.user_id,
+        verdict: row.verdict,
+        elapsedMs: row.elapsed_ms,
+        points: row.points,
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/** 이번 판(game_no)의 답안 전체. 실시간 구독(reveal 화면)과 결과 화면 양쪽에서 쓴다. */
+export async function fetchAnswers(roomId: string, gameNo: number): Promise<RoomAnswer[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('room_answers')
+      .select('round_index, user_id, verdict, elapsed_ms, points')
+      .eq('room_id', roomId)
+      .eq('game_no', gameNo);
+    if (error || !data) return [];
+    return (data as RoomAnswerRow[]).map((r) => ({
+      roundIndex: r.round_index,
+      userId: r.user_id,
+      verdict: r.verdict,
+      elapsedMs: r.elapsed_ms,
+      points: r.points,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 스케줄상 게임이 끝났을 때 아무 클라이언트나 부른다. 서버가 시각을 다시 검사해
+ * 진짜 끝났을 때만 동작하므로(그 전엔 조용히 무시) 여러 명이 동시에 불러도 안전하다.
+ */
+export async function finishGame(roomId: string): Promise<void> {
+  if (!supabase) return;
+  try {
+    await supabase.rpc('finish_game', { p_room_id: roomId });
+  } catch {
+    /* no-op */
   }
 }

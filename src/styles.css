@@ -832,6 +832,10 @@ input[type='radio'] {
   letter-spacing: 0.04em;
 }
 
+.small-label {
+  font-size: 0.75rem;
+  margin: 10px 0 4px;
+}
 .chip-row {
   display: flex;
   flex-wrap: wrap;
@@ -931,10 +935,34 @@ input[type='radio'] {
 }
 
 .timer-track {
+  position: relative;
   height: 6px;
   border-radius: 999px;
   background: var(--surface-2);
   overflow: hidden;
+}
+/* 단체게임: 다음 힌트가 열리는 지점을 미리 알려주는 눈금(50%/75%). */
+.timer-tick {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--bg);
+  opacity: 0.6;
+}
+
+.score-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.score-chip {
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
 }
 .timer-fill {
   height: 100%;
@@ -1266,6 +1294,11 @@ input[type='radio'] {
   flex: 1;
   min-width: 0;
   overflow-wrap: break-word;
+}
+.player-source {
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 /* ---------- 단체게임: 채팅 ---------- */
