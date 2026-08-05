@@ -750,6 +750,7 @@ declare
   el int;
   ratio numeric;
   pts int;
+  inserted room_answers;
 begin
   select * into r from game_rooms where id = p_room_id;
   if r is null or r.status <> 'playing' then raise exception 'NOT_PLAYING'; end if;
@@ -781,10 +782,11 @@ begin
     else round(400 - 150 * ((ratio - 0.75) / 0.25))
   end;
 
-  return query
-    insert into room_answers (room_id, game_no, round_index, user_id, verdict, elapsed_ms, points)
-    values (p_room_id, r.game_no, p_round_index, auth.uid(), p_verdict, el, pts)
-    returning *;
+  insert into room_answers (room_id, game_no, round_index, user_id, verdict, elapsed_ms, points)
+  values (p_room_id, r.game_no, p_round_index, auth.uid(), p_verdict, el, pts)
+  returning * into inserted;
+
+  return inserted;
 end;
 $$;
 
