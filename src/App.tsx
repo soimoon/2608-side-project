@@ -14,6 +14,8 @@ import {
 import { REVIVAL_STREAK_GOAL, claimKey, kstDateKey } from './lib/attendance';
 import { allDeckNames, pickRevivalWords, revivalPool } from './lib/select';
 import BottomNav, { type Tab } from './components/BottomNav';
+import LandingScreen from './components/LandingScreen';
+import MergeDialog from './components/MergeDialog';
 import ProfileScreen from './components/ProfileScreen';
 import WordsHub from './components/WordsHub';
 import WordManager from './components/WordManager';
@@ -459,12 +461,29 @@ export default function App() {
     startRevival,
   ]);
 
+  // Supabase 응답을 기다리는 아주 짧은 순간 — 여기서 아무것도 안 그려야, 이미 로그인해
+  // 둔 사용자도 앱을 열 때마다 랜딩 화면이 잠깐 번쩍이는 걸 피할 수 있다.
+  if (sync.configured && !sync.sessionChecked) {
+    return <div className="app" />;
+  }
+
+  // 게스트든 실계정이든 세션이 있어야 앱을 쓸 수 있다 — 로그인 없이 흘러가다 나중에
+  // 데이터를 잃는 경로 자체를 없앤다(게스트도 명시적 선택이라 이 조건에 안 걸린다).
+  if (sync.configured && !sync.session) {
+    return (
+      <div className="app">
+        <LandingScreen sync={sync} />
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       {body}
       {screen.name !== 'quiz' && screen.name !== 'groupQuiz' && (
         <BottomNav active={tabOf(screen.name)} onNavigate={navigate} />
       )}
+      <MergeDialog sync={sync} />
     </div>
   );
 }

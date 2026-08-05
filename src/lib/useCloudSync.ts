@@ -30,6 +30,13 @@ export interface PendingMerge {
 export interface CloudSync {
   /** .env.local에 Supabase 설정이 있는지. 없으면 로그인 UI 자체를 숨겨야 한다. */
   configured: boolean;
+  /**
+   * 최초 getSession() 조회가 끝났는지. 이게 false인 동안은 session이 실제로 없는
+   * 건지 아직 안 물어봐서 모르는 건지 구분이 안 된다 — 이 값을 안 보고 "!session이면
+   * 랜딩 화면"으로 바로 판정하면, 이미 로그인해 둔 사용자도 앱을 열 때마다 랜딩
+   * 화면이 잠깐 번쩍이고 사라지는 걸 보게 된다.
+   */
+  sessionChecked: boolean;
   session: Session | null;
   status: SyncStatus;
   message?: string;
@@ -56,6 +63,7 @@ export interface CloudSync {
  */
 export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): CloudSync {
   const [session, setSession] = useState<Session | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [status, setStatus] = useState<SyncStatus>('guest');
   const [message, setMessage] = useState<string>();
   const [pendingMerge, setPendingMerge] = useState<PendingMerge | null>(null);
@@ -80,7 +88,10 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setSessionChecked(true);
+    });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -241,6 +252,7 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
 
   return {
     configured: isCloudConfigured,
+    sessionChecked,
     session,
     status,
     message,

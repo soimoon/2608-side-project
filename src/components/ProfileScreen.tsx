@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { THEMES, type ClaimKind, type SessionResult, type Theme, type Word } from '../types';
+import type { ClaimKind, SessionResult, Theme, Word } from '../types';
 import {
   BADGES,
   MISSION_TARGET,
@@ -12,13 +12,7 @@ import {
 } from '../lib/attendance';
 import type { CloudSync } from '../lib/useCloudSync';
 import { useNickname } from '../lib/useNickname';
-import AuthBar from './AuthBar';
-
-// Theme에 새 값을 추가하면 여기서 타입 에러가 나 라벨 추가를 잊지 않게 된다.
-const THEME_LABELS: Record<Theme, string> = {
-  blue: '기본 (파랑)',
-  pink: '핑크',
-};
+import SettingsModal from './SettingsModal';
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -125,6 +119,7 @@ export default function ProfileScreen({
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState('');
   const [nicknameError, setNicknameError] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
 
   function startEditNickname() {
     setNicknameInput(nickname ?? '');
@@ -144,18 +139,24 @@ export default function ProfileScreen({
   return (
     <div className="screen">
       <div className="topline">
-        <label className="theme-picker">
-          <span className="muted">테마</span>
-          <select value={theme} onChange={(e) => onThemeChange(e.target.value as Theme)}>
-            {THEMES.map((t) => (
-              <option key={t} value={t}>
-                {THEME_LABELS[t]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <AuthBar sync={sync} />
+        <span />
+        <button
+          className="btn ghost sm settings-trigger"
+          aria-label="설정"
+          onClick={() => setShowSettings(true)}
+        >
+          ☰
+        </button>
       </div>
+
+      {showSettings && (
+        <SettingsModal
+          sync={sync}
+          theme={theme}
+          onThemeChange={onThemeChange}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
 
       {sync.session && (
         <div className="row nickname-row">
