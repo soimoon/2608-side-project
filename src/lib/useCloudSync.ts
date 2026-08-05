@@ -7,6 +7,16 @@ import { mergeGuestWithCloud, pullAllWords, pullWords, pushWords } from './sync'
 
 export type SyncStatus = 'guest' | 'syncing' | 'confirming' | 'synced' | 'offline' | 'error';
 
+/**
+ * 익명 로그인(단체게임 전용 — 브라우저를 지우면 사라지는 임시 정체성)은 여기서 "진짜
+ * 로그인"으로 치지 않는다. 단어장 동기화·테마·출석 같은 계정 기반 기능은 이 함수로
+ * 걸러진 세션만 봐야 한다 — 안 그러면 단체게임 테스트 삼아 익명 로그인했을 뿐인데
+ * "이 기기 단어장을 계정에 합칠까요?" 팝업이 뜨는 식으로 엉뚱하게 얽힌다.
+ */
+export function isRealSession(session: Session | null): session is Session {
+  return Boolean(session) && session!.user.is_anonymous !== true;
+}
+
 /** merge: 합친다 · cloudOnly: 기기 단어는 버리고 계정 단어만 쓴다 · cancel: 로그아웃하고 아무것도 안 바꾼다. */
 export type MergeChoice = 'merge' | 'cloudOnly' | 'cancel';
 
@@ -31,6 +41,12 @@ export interface CloudSync {
   pendingMerge: PendingMerge | null;
   confirmMerge: (choice: MergeChoice) => void;
   signInWithGoogle: () => Promise<void>;
+  /**
+   * 단체게임 전용 임시 로그인. 계정 생성·비밀번호 없이 즉시 auth.uid()를 받는다 —
+   * 시크릿 창마다 서로 다른 임시 사용자가 되므로, 기기 하나로도 "여러 명"을 흉내 내며
+   * 방/라운드 테스트를 할 수 있다. 단어장 동기화에는 관여하지 않는다(isRealSession 참고).
+   */
+  signInAnonymously: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -70,7 +86,8 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
   }, []);
 
   const runSync = useCallback(async () => {
-    if (!supabase || !session || syncing.current) return;
+    // 익명 세션(단체게임 전용)은 단어장 동기화 대상이 아니다 — isRealSession 주석 참고.
+    if (!supabase || !isRealSession(session) || syncing.current) return;
     syncing.current = true;
     setStatus('syncing');
     try {
@@ -171,16 +188,16 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
     }
   }, [session, setDB]);
 
-  // 로그인 직후 1회.
+  // 로그인 직후 1회. 익명 세션이면 동기화를 건너뛰고 그냥 guest 취급한다.
   useEffect(() => {
-    if (session) runSync();
+    if (isRealSession(session)) runSync();
     else setStatus('guest');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   // 창 포커스를 되찾을 때 — 다른 기기에서 바뀐 내용을 받아오기 좋은 시점.
   useEffect(() => {
-    if (!session) return;
+    if (!isRealSession(session)) return;
     const onFocus = () => runSync();
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
@@ -188,7 +205,7 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
 
   // 로컬 변경 후 3초 디바운스 — 타이핑마다 요청을 보내지 않는다.
   useEffect(() => {
-    if (!session) return;
+    if (!isRealSession(session)) return;
     const t = window.setTimeout(runSync, 3000);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,6 +220,11 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
       // 돌아가려다 실패한다(폰에서 "서버에 연결할 수 없음" 형태로 나타남).
       options: { redirectTo: window.location.origin + import.meta.env.BASE_URL },
     });
+  }, []);
+
+  const signInAnonymously = useCallback(async () => {
+    if (!supabase) return;
+    await supabase.auth.signInAnonymously();
   }, []);
 
   const signOut = useCallback(async () => {
@@ -220,6 +242,7 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
     pendingMerge,
     confirmMerge,
     signInWithGoogle,
+    signInAnonymously,
     signOut,
   };
 }

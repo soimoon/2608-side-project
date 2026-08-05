@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CloudSync } from '../../lib/useCloudSync';
 import { useRoomList } from '../../lib/useRoomList';
 import { useNickname } from '../../lib/useNickname';
@@ -12,7 +12,14 @@ interface Props {
 
 const SPEED_LABEL: Record<string, string> = { fast: '빠름', normal: '보통', relaxed: '여유' };
 
-/** "단체게임" 탭 진입점. 공개 방 목록 — 코드 입장이 아니라 그림퀴즈류 앱처럼 골라 들어간다. */
+/**
+ * "단체게임" 탭 진입점. 공개 방 목록 — 코드 입장이 아니라 그림퀴즈류 앱처럼 골라 들어간다.
+ *
+ * 로그인 여부를 따로 묻지 않는다 — 세션이 없으면 즉시 익명 로그인을 시도해 그 자리에서
+ * auth.uid()를 확보한다. 단체게임은 애초에 "계정"이 필요한 게 아니라 "그 판 동안의
+ * 정체성" 하나만 있으면 되므로, 구글 로그인을 요구할 이유가 없다(단어장 동기화와는
+ * 완전히 별개 — isRealSession 참고).
+ */
 export default function RoomListScreen({ sync, onEnterRoom }: Props) {
   const [creating, setCreating] = useState(false);
   // 훅은 조건 분기보다 위에서 항상 호출한다 — enabled=false면 훅 내부에서 그냥 쉰다.
@@ -20,6 +27,10 @@ export default function RoomListScreen({ sync, onEnterRoom }: Props) {
   const { displayName, nicknameSet, loading: nickLoading, save: saveNickname } = useNickname(
     sync.session?.user.id,
   );
+
+  useEffect(() => {
+    if (sync.configured && !sync.session) void sync.signInAnonymously();
+  }, [sync.configured, sync.session, sync.signInAnonymously]);
 
   if (!sync.configured) {
     return (
@@ -35,16 +46,7 @@ export default function RoomListScreen({ sync, onEnterRoom }: Props) {
   if (!sync.session) {
     return (
       <div className="screen">
-        <header className="hero">
-          <h1>단체게임</h1>
-          <p className="sub">로그인하면 친구들과 실시간으로 단어 대결을 할 수 있어요.</p>
-        </header>
-        <div className="empty-cta">
-          <p className="empty-cta-icon">👥</p>
-          <button className="btn primary lg" onClick={sync.signInWithGoogle}>
-            Google로 로그인
-          </button>
-        </div>
+        <p className="muted">입장 준비 중…</p>
       </div>
     );
   }

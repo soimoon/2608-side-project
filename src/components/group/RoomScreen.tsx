@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type { CloudSync } from '../../lib/useCloudSync';
 import { useGroupRoom } from '../../lib/useGroupRoom';
 import { useNickname } from '../../lib/useNickname';
@@ -23,6 +24,11 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
   const { room, players, messages, loading, joinError, roomGone, kickedOut, isHost, send, kick, exit } =
     useGroupRoom(roomId, effectiveUserId, displayName ?? '플레이어');
 
+  // RoomListScreen을 거치지 않고 바로 들어온 경우까지 방어한다(보통은 이미 로그인돼 있다).
+  useEffect(() => {
+    if (sync.configured && !session) void sync.signInAnonymously();
+  }, [sync.configured, session, sync.signInAnonymously]);
+
   async function handleLeave() {
     await exit();
     onBack();
@@ -31,12 +37,7 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
   if (!session) {
     return (
       <div className="screen">
-        <div className="empty-cta">
-          <p>로그인이 필요합니다.</p>
-          <button className="btn ghost" onClick={onBack}>
-            ← 목록으로
-          </button>
-        </div>
+        <p className="muted">입장 준비 중…</p>
       </div>
     );
   }

@@ -1,4 +1,4 @@
-import type { CloudSync } from '../lib/useCloudSync';
+import { isRealSession, type CloudSync } from '../lib/useCloudSync';
 
 const STATUS_TEXT: Record<CloudSync['status'], string> = {
   guest: '',
@@ -17,7 +17,9 @@ interface Props {
 export default function AuthBar({ sync }: Props) {
   if (!sync.configured) return null;
 
-  if (!sync.session) {
+  // 단체게임용 익명 세션은 여기서 "로그인 안 함"으로 취급한다 — 단어장 동기화 기준으로는
+  // 실제 계정이 아니기 때문이다(isRealSession 주석 참고).
+  if (!isRealSession(sync.session)) {
     return (
       <div className="authbar">
         <button className="btn ghost sm" onClick={sync.signInWithGoogle}>
