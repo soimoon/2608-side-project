@@ -42,8 +42,26 @@ export default function GroupResultScreen({ roomId, gameNo, onBackToRoom }: Prop
     );
   }
 
-  const standings = rankPlayers(answers, players.map((p) => p.userId));
-  const nameOf = (id: string) => players.find((p) => p.userId === id)?.displayName ?? '???';
+  // 게임 도중 나간 사람은 leave_room이 room_players 행을 지워버리지만, 그 전에 낸
+  // room_answers는 그대로 남는다. players만 보면 "나가기 전까지 딴 점수"가 통째로
+  // 사라지므로, 답안에 등장하는 모든 user_id를 참가자로 쳐서 순위에 포함시킨다 —
+  // 그래야 남아 있던 사람이 아니라 실제 점수로 순위가 매겨진다.
+  const knownIds = new Set(players.map((p) => p.userId));
+  const missingIds = [...new Set(answers.map((a) => a.userId))].filter((id) => !knownIds.has(id));
+  // 나간 사람의 실제 닉네임은 알 길이 없다(스냅샷이 지워졌으므로) — 첫 정답을 낸
+  // 라운드가 빠른 순서대로 "플레이어1", "플레이어2"라는 자리표시 이름을 붙인다.
+  missingIds.sort((a, b) => {
+    const roundOf = (id: string) => Math.min(...answers.filter((x) => x.userId === id).map((x) => x.roundIndex));
+    return roundOf(a) - roundOf(b);
+  });
+
+  const allIds = [...players.map((p) => p.userId), ...missingIds];
+  const standings = rankPlayers(answers, allIds);
+  const nameOf = (id: string) => {
+    const p = players.find((x) => x.userId === id);
+    if (p) return p.displayName;
+    return `플레이어${missingIds.indexOf(id) + 1}`;
+  };
 
   return (
     <div className="screen">
@@ -56,6 +74,7 @@ export default function GroupResultScreen({ roomId, gameNo, onBackToRoom }: Prop
           <div key={s.userId} className="room-list-item" style={{ cursor: 'default' }}>
             <div className="room-list-title">
               {MEDAL[s.rank - 1] ?? `${s.rank}위`} {nameOf(s.userId)}
+              {missingIds.includes(s.userId) && <span className="muted"> (나감)</span>}
             </div>
             <div className="room-list-meta muted">
               {s.totalPoints}점 · 정답 {s.correctCount}개
