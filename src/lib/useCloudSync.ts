@@ -46,7 +46,7 @@ export interface CloudSync {
    * 시크릿 창마다 서로 다른 임시 사용자가 되므로, 기기 하나로도 "여러 명"을 흉내 내며
    * 방/라운드 테스트를 할 수 있다. 단어장 동기화에는 관여하지 않는다(isRealSession 참고).
    */
-  signInAnonymously: () => Promise<void>;
+  signInAnonymously: () => Promise<{ ok: boolean; error?: string }>;
   signOut: () => Promise<void>;
 }
 
@@ -222,9 +222,14 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
     });
   }, []);
 
-  const signInAnonymously = useCallback(async () => {
-    if (!supabase) return;
-    await supabase.auth.signInAnonymously();
+  const signInAnonymously = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    if (!supabase) return { ok: false, error: '클라우드 설정이 없습니다.' };
+    // auth 메서드는 실패해도 throw하지 않고 error를 돌려줄 뿐이다 — 여기서 확인 안 하면
+    // (예: 대시보드에서 Anonymous Sign-Ins가 꺼져 있을 때) 호출부가 아무 신호 없이
+    // 계속 "로그인 중"으로만 보이게 된다.
+    const { error } = await supabase.auth.signInAnonymously();
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
   }, []);
 
   const signOut = useCallback(async () => {

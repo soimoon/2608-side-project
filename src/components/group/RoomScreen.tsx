@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { CloudSync } from '../../lib/useCloudSync';
 import { useGroupRoom } from '../../lib/useGroupRoom';
 import { useNickname } from '../../lib/useNickname';
@@ -23,10 +23,19 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
   const effectiveUserId = nicknameSet ? userId : undefined;
   const { room, players, messages, loading, joinError, roomGone, kickedOut, isHost, send, kick, exit } =
     useGroupRoom(roomId, effectiveUserId, displayName ?? '플레이어');
+  const [authError, setAuthError] = useState('');
+
+  function trySignIn() {
+    setAuthError('');
+    void sync.signInAnonymously().then((res) => {
+      if (!res.ok) setAuthError(res.error ?? '로그인하지 못했습니다.');
+    });
+  }
 
   // RoomListScreen을 거치지 않고 바로 들어온 경우까지 방어한다(보통은 이미 로그인돼 있다).
   useEffect(() => {
-    if (sync.configured && !session) void sync.signInAnonymously();
+    if (sync.configured && !session) trySignIn();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync.configured, session, sync.signInAnonymously]);
 
   async function handleLeave() {
@@ -37,7 +46,20 @@ export default function RoomScreen({ roomId, sync, onBack }: Props) {
   if (!session) {
     return (
       <div className="screen">
-        <p className="muted">입장 준비 중…</p>
+        {authError ? (
+          <div className="empty-cta">
+            <p>입장하지 못했습니다.</p>
+            <p className="muted">{authError}</p>
+            <button className="btn primary" onClick={trySignIn}>
+              다시 시도
+            </button>
+            <button className="btn ghost" onClick={onBack}>
+              ← 목록으로
+            </button>
+          </div>
+        ) : (
+          <p className="muted">입장 준비 중…</p>
+        )}
       </div>
     );
   }

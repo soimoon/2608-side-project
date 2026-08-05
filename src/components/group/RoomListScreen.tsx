@@ -22,14 +22,23 @@ const SPEED_LABEL: Record<string, string> = { fast: '빠름', normal: '보통', 
  */
 export default function RoomListScreen({ sync, onEnterRoom }: Props) {
   const [creating, setCreating] = useState(false);
+  const [authError, setAuthError] = useState('');
   // 훅은 조건 분기보다 위에서 항상 호출한다 — enabled=false면 훅 내부에서 그냥 쉰다.
   const { rooms, loading, refresh } = useRoomList(Boolean(sync.session));
   const { displayName, nicknameSet, loading: nickLoading, save: saveNickname } = useNickname(
     sync.session?.user.id,
   );
 
+  function trySignIn() {
+    setAuthError('');
+    void sync.signInAnonymously().then((res) => {
+      if (!res.ok) setAuthError(res.error ?? '로그인하지 못했습니다.');
+    });
+  }
+
   useEffect(() => {
-    if (sync.configured && !sync.session) void sync.signInAnonymously();
+    if (sync.configured && !sync.session) trySignIn();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync.configured, sync.session, sync.signInAnonymously]);
 
   if (!sync.configured) {
@@ -46,7 +55,18 @@ export default function RoomListScreen({ sync, onEnterRoom }: Props) {
   if (!sync.session) {
     return (
       <div className="screen">
-        <p className="muted">입장 준비 중…</p>
+        {authError ? (
+          <div className="empty-cta">
+            <p className="empty-cta-icon">👥</p>
+            <p>입장하지 못했습니다.</p>
+            <p className="muted">{authError}</p>
+            <button className="btn primary" onClick={trySignIn}>
+              다시 시도
+            </button>
+          </div>
+        ) : (
+          <p className="muted">입장 준비 중…</p>
+        )}
       </div>
     );
   }
