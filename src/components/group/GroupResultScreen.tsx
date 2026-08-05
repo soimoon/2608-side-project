@@ -9,7 +9,11 @@ interface Props {
   onBackToRoom: () => void;
 }
 
-const MEDAL: IconName[] = ['medalGold', 'medalSilver', 'medalBronze'];
+const MEDAL: { icon: IconName; rankClass: string }[] = [
+  { icon: 'medalGold', rankClass: 'rank-gold' },
+  { icon: 'medalSilver', rankClass: 'rank-silver' },
+  { icon: 'medalBronze', rankClass: 'rank-bronze' },
+];
 
 /**
  * 최종 순위 화면. GroupQuizScreen이 들고 있던 live 상태를 그대로 넘겨받는 대신
@@ -75,7 +79,7 @@ export default function GroupResultScreen({ roomId, gameNo, onBackToRoom }: Prop
           <div key={s.userId} className="room-list-item" style={{ cursor: 'default' }}>
             <div className="room-list-title">
               {MEDAL[s.rank - 1] ? (
-                <Icon name={MEDAL[s.rank - 1]} className="inline-medal" />
+                <Icon name={MEDAL[s.rank - 1].icon} className={`inline-medal ${MEDAL[s.rank - 1].rankClass}`} />
               ) : (
                 `${s.rank}위`
               )}{' '}

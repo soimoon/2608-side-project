@@ -12,7 +12,6 @@ import {
   pushTheme,
 } from './lib/sync';
 import { REVIVAL_STREAK_GOAL, claimKey, kstDateKey } from './lib/attendance';
-import { ThemeContext } from './lib/theme';
 import { allDeckNames, pickRevivalWords, revivalPool } from './lib/select';
 import BottomNav, { type Tab } from './components/BottomNav';
 import LandingScreen from './components/LandingScreen';
@@ -479,14 +478,12 @@ export default function App() {
   }
 
   return (
-    <ThemeContext.Provider value={db.theme}>
-      <div className="app">
-        {body}
-        {screen.name !== 'quiz' && screen.name !== 'groupQuiz' && (
-          <BottomNav active={tabOf(screen.name)} onNavigate={navigate} />
-        )}
-        <MergeDialog sync={sync} />
-      </div>
-    </ThemeContext.Provider>
+    <div className="app">
+      {body}
+      {screen.name !== 'quiz' && screen.name !== 'groupQuiz' && (
+        <BottomNav active={tabOf(screen.name)} onNavigate={navigate} />
+      )}
+      <MergeDialog sync={sync} />
+    </div>
   );
 }

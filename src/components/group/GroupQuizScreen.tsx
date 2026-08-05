@@ -190,7 +190,7 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
                 <li key={p.userId} className="player-row">
                   <span className="player-name">
                     {p.displayName}
-                    {p.userId === fastestId && <Icon name="medalGold" className="inline-medal" />}
+                    {p.userId === fastestId && <Icon name="medalGold" className="inline-medal rank-gold" />}
                   </span>
                   <span className={`verdict ${a?.verdict ?? 'wrong'}`}>
                     {a ? `${VERDICT_TEXT[a.verdict]} · ${a.points}점` : '미제출'}
