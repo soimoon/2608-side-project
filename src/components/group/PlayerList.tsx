@@ -1,4 +1,5 @@
 import { FRESH_WINDOW_MS, type RoomPlayer } from '../../lib/groupApi';
+import Icon from '../Icon';
 
 interface Props {
   players: RoomPlayer[];
@@ -24,7 +25,7 @@ export default function PlayerList({ players, hostId, me, isHost, maxPlayers, on
               <span className={`player-dot ${online ? 'online' : 'offline'}`} aria-hidden />
               <span className="player-name">
                 {p.displayName}
-                {p.userId === hostId && ' 👑'}
+                {p.userId === hostId && <Icon name="crown" className="inline-medal" />}
                 {p.userId === me && ' (나)'}
               </span>
               <span className="muted player-source">{p.sourceLabel ? `✓ ${p.sourceLabel}` : '단어장 선택 전'}</span>

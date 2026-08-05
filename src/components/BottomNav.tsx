@@ -1,10 +1,12 @@
+import Icon, { type IconName } from './Icon';
+
 export type Tab = 'words' | 'quiz' | 'group' | 'profile';
 
-const TABS: { key: Tab; icon: string; label: string }[] = [
-  { key: 'words', icon: '📖', label: '단어장' },
-  { key: 'quiz', icon: '✏️', label: '퀴즈' },
-  { key: 'group', icon: '👥', label: '단체게임' },
-  { key: 'profile', icon: '🙂', label: '프로필' },
+const TABS: { key: Tab; icon: IconName; label: string }[] = [
+  { key: 'words', icon: 'book', label: '단어장' },
+  { key: 'quiz', icon: 'pencil', label: '퀴즈' },
+  { key: 'group', icon: 'people', label: '단체게임' },
+  { key: 'profile', icon: 'smile', label: '프로필' },
 ];
 
 interface Props {
@@ -24,7 +26,7 @@ export default function BottomNav({ active, onNavigate }: Props) {
           aria-current={active === t.key ? 'page' : undefined}
         >
           <span className="bottom-nav-icon" aria-hidden>
-            {t.icon}
+            <Icon name={t.icon} />
           </span>
           <span className="bottom-nav-label">{t.label}</span>
         </button>

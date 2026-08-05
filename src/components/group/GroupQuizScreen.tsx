@@ -8,6 +8,7 @@ import { judge } from '../../lib/judge';
 import { hintStageAt, progressiveMask } from '../../lib/groupMask';
 import { correctScore, fastestCorrectUserId, rankPlayers } from '../../lib/groupScore';
 import { FRESH_WINDOW_MS, leaveRoom } from '../../lib/groupApi';
+import Icon from '../Icon';
 
 interface Props {
   roomId: string;
@@ -189,7 +190,7 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
                 <li key={p.userId} className="player-row">
                   <span className="player-name">
                     {p.displayName}
-                    {p.userId === fastestId && ' 🥇'}
+                    {p.userId === fastestId && <Icon name="medalGold" className="inline-medal" />}
                   </span>
                   <span className={`verdict ${a?.verdict ?? 'wrong'}`}>
                     {a ? `${VERDICT_TEXT[a.verdict]} · ${a.points}점` : '미제출'}

@@ -87,7 +87,7 @@ export interface Pronunciation {
  * [data-theme="..."] 블록을 추가하고, Home.tsx의 THEME_LABELS에 표시 이름만
  * 더하면 선택 목록에 자동으로 나타난다.
  */
-export const THEMES = ['blue', 'pink'] as const;
+export const THEMES = ['blue', 'pink', 'cream', 'mint', 'lavender', 'bw-light', 'bw-dark'] as const;
 export type Theme = (typeof THEMES)[number];
 
 export type Verdict = 'correct' | 'near' | 'wrong' | 'timeout';

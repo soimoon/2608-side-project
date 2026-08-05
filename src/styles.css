@@ -1,67 +1,91 @@
 /* 테마(색 팔레트)와 무관하게 항상 같은 값들. --ok/--near/--err는 특히
-   퀴즈 타이머 신호등 색이라, 테마를 바꿔도 절대 달라지면 안 된다. */
+   퀴즈 타이머 신호등 색이라, 테마를 바꿔도 절대 달라지면 안 된다 — 다만 유일하게
+   다크인 bw-dark에서는 대비를 위해 값 자체(다크에 맞춘 톤)를 따로 둔다. */
 :root {
+  --text: #171a22;
+  --muted: #6b7488;
+  --ok: #12a06a;
+  --near: #b8820b;
+  --err: #dc2626;
+  --radius: 14px;
+  --mono: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Consolas, monospace;
+  --bottom-nav-h: 64px;
+  --on-accent: #fff;
+
+  color-scheme: light;
+}
+
+/* 테마 중 유일하게 다크가 있다 — 시스템 설정이 아니라 테마 선택 자체로 고른다. */
+[data-theme='bw-dark'] {
   --text: #e8eaf0;
   --muted: #8b93a7;
   --ok: #3ddc97;
   --near: #ffc94d;
   --err: #ff5449;
-  --radius: 14px;
-  --mono: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Consolas, monospace;
-  --bottom-nav-h: 64px;
-
+  --on-accent: #1b1b1e;
   color-scheme: dark;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --text: #171a22;
-    --muted: #6b7488;
-    --ok: #12a06a;
-    --near: #b8820b;
-    --err: #dc2626;
-    color-scheme: light;
-  }
 }
 
 /* ---------- 테마별 팔레트 ----------
    <html data-theme="..."> 로 고른다. data-theme이 아직 없거나(JS 실행 전)
    모르는 값이면 :root 단독 선택자가 걸려 자동으로 blue가 기본값이 된다.
+   블랙&화이트만 라이트/다크 두 값으로 나뉘고 나머지는 라이트 한 벌뿐이다.
    새 테마 추가 시 여기에 [data-theme="이름"] 블록만 더하면 된다. */
 :root,
 [data-theme='blue'] {
-  --bg: #0f1116;
-  --surface: #171a22;
-  --surface-2: #1f232d;
-  --line: #2b303c;
-  --accent: #6aa8ff;
-}
-@media (prefers-color-scheme: light) {
-  :root,
-  [data-theme='blue'] {
-    --bg: #f6f7fb;
-    --surface: #ffffff;
-    --surface-2: #f0f2f7;
-    --line: #dfe3ec;
-    --accent: #2f6fd0;
-  }
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --surface-2: #f0f2f7;
+  --line: #dfe3ec;
+  --accent: #2f6fd0;
 }
 
 [data-theme='pink'] {
-  --bg: #131118;
-  --surface: #1c1923;
-  --surface-2: #25212d;
-  --line: #342e3e;
-  --accent: #ff6fa5;
+  --bg: #faf4f9;
+  --surface: #fffdff;
+  --surface-2: #fceaf2;
+  --line: #f0c9dd;
+  --accent: #d6336c;
 }
-@media (prefers-color-scheme: light) {
-  [data-theme='pink'] {
-    --bg: #faf4f9;
-    --surface: #fffdff;
-    --surface-2: #f6edf4;
-    --line: #e9dde8;
-    --accent: #d6336c;
-  }
+
+[data-theme='cream'] {
+  --bg: #faf6ef;
+  --surface: #fffdf8;
+  --surface-2: #f3ead9;
+  --line: #e6d9c3;
+  --accent: #b8875a;
+}
+
+[data-theme='mint'] {
+  --bg: #f0faf7;
+  --surface: #ffffff;
+  --surface-2: #e1f5ee;
+  --line: #cdeae0;
+  --accent: #14b892;
+}
+
+[data-theme='lavender'] {
+  --bg: #f6f4fb;
+  --surface: #ffffff;
+  --surface-2: #ece5f7;
+  --line: #ddd0ef;
+  --accent: #8462c7;
+}
+
+[data-theme='bw-light'] {
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f0f0f0;
+  --line: #e0e0e0;
+  --accent: #1a1a1a;
+}
+
+[data-theme='bw-dark'] {
+  --bg: #323235;
+  --surface: #3a3a3e;
+  --surface-2: #434347;
+  --line: #505056;
+  --accent: #f0f0ee;
 }
 
 * {
@@ -78,7 +102,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, sans-serif;
+  font-family: 'SUIT Variable', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, sans-serif;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
@@ -133,6 +157,12 @@ body {
   font-size: 1.3rem;
   line-height: 1;
 }
+.bottom-nav-icon img,
+.bottom-nav-icon svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
 .bottom-nav-label {
   font-size: 0.72rem;
 }
@@ -178,7 +208,7 @@ code {
 }
 .btn.primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .btn.ghost {
@@ -542,6 +572,11 @@ input[type='radio'] {
   font-size: 2rem;
   margin: 0 0 8px;
 }
+.empty-cta-icon img,
+.empty-cta-icon svg {
+  width: 44px;
+  height: 44px;
+}
 .today-note {
   margin: 0;
   text-align: center;
@@ -601,6 +636,17 @@ input[type='radio'] {
 }
 .pron-play:hover {
   border-color: var(--accent);
+}
+.pron-play img,
+.pron-play svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.pron.sm .pron-play img,
+.pron.sm .pron-play svg {
+  width: 12px;
+  height: 12px;
 }
 .pron-ipa {
   font-family: var(--mono);
@@ -1276,6 +1322,11 @@ input[type='radio'] {
 .badge-icon {
   font-size: 1.6rem;
 }
+.badge-icon img,
+.badge-icon svg {
+  width: 28px;
+  height: 28px;
+}
 .badge-label {
   font-size: 0.85rem;
   font-weight: 600;
@@ -1341,6 +1392,18 @@ input[type='radio'] {
 }
 .player-dot.offline {
   background: var(--line);
+}
+.inline-medal {
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.2em;
+  margin-left: 2px;
+  display: inline-block;
+}
+.inline-medal svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 .player-name {
   flex: 1;

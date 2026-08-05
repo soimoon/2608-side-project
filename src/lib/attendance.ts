@@ -1,4 +1,5 @@
 import type { ClaimKind, Word } from '../types';
+import type { IconName } from '../components/Icon';
 
 /** 오답 부활전 미션의 목표 개수. */
 export const MISSION_TARGET = 5;
@@ -78,13 +79,13 @@ export function currentTier(
 export interface BadgeDef {
   key: string;
   label: string;
-  icon: string;
+  icon: IconName;
   tiers: readonly number[];
   /** 배지 값 계산에 필요한 최소 재료. 프로필 화면에서 골라 넘긴다. */
 }
 
 export const BADGES = {
-  attendance: { key: 'attendance', label: '연속 출석', icon: '🔥', tiers: [7, 30, 100] },
-  revival: { key: 'revival', label: '부활시킨 단어', icon: '🌱', tiers: [1, 5, 20] },
-  volume: { key: 'volume', label: '누적 정답', icon: '📚', tiers: [100, 500, 1000] },
+  attendance: { key: 'attendance', label: '연속 출석', icon: 'fire', tiers: [7, 30, 100] },
+  revival: { key: 'revival', label: '부활시킨 단어', icon: 'seedling', tiers: [1, 5, 20] },
+  volume: { key: 'volume', label: '누적 정답', icon: 'books', tiers: [100, 500, 1000] },
 } as const satisfies Record<string, BadgeDef>;

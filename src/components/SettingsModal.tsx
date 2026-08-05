@@ -6,6 +6,11 @@ import AuthBar from './AuthBar';
 const THEME_LABELS: Record<Theme, string> = {
   blue: '기본 (파랑)',
   pink: '핑크',
+  cream: '크림베이지',
+  mint: '민트',
+  lavender: '라벤더',
+  'bw-light': '블랙&화이트 (라이트)',
+  'bw-dark': '블랙&화이트 (다크)',
 };
 
 interface Props {

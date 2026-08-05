@@ -13,6 +13,7 @@ import {
 import type { CloudSync } from '../lib/useCloudSync';
 import { useNickname } from '../lib/useNickname';
 import SettingsModal from './SettingsModal';
+import Icon from './Icon';
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -297,7 +298,7 @@ export default function ProfileScreen({
             return (
               <div key={b.key} className={`badge ${tier > 0 ? 'earned' : ''}`}>
                 <span className="badge-icon" aria-hidden>
-                  {b.icon}
+                  <Icon name={b.icon} />
                 </span>
                 <span className="badge-label">{b.label}</span>
                 <span className="badge-tier">{tier > 0 ? `${tier} 달성` : '미달성'}</span>

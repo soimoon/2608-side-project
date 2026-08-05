@@ -1,4 +1,5 @@
 import { MISSION_TARGET, REVIVAL_STREAK_GOAL } from '../lib/attendance';
+import Icon from './Icon';
 
 interface Props {
   wordCount: number;
@@ -42,7 +43,9 @@ export default function QuizHub({
       </section>
 
       <section className="card">
-        <h3>오답 부활전 🌱</h3>
+        <h3>
+          오답 부활전 <Icon name="seedling" className="inline-medal" />
+        </h3>
         <p className="muted">
           {revivalCount > 0
             ? `틀렸던 적이 있고 아직 완전히 안 잡힌 단어 ${revivalCount}개를 모아서 풉니다. 최근에 틀린 단어부터 나와요.`

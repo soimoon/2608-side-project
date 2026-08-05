@@ -4,6 +4,7 @@ import { useRoomList } from '../../lib/useRoomList';
 import { useNickname } from '../../lib/useNickname';
 import CreateRoomModal from './CreateRoomModal';
 import NicknameGateModal from './NicknameGateModal';
+import Icon from '../Icon';
 
 interface Props {
   sync: CloudSync;
@@ -45,7 +46,7 @@ export default function RoomListScreen({ sync, onEnterRoom }: Props) {
     return (
       <div className="screen">
         <div className="empty-cta">
-          <p className="empty-cta-icon">👥</p>
+          <p className="empty-cta-icon"><Icon name="people" /></p>
           <p>이 배포에서는 단체게임을 쓸 수 없습니다.</p>
         </div>
       </div>
@@ -57,7 +58,7 @@ export default function RoomListScreen({ sync, onEnterRoom }: Props) {
       <div className="screen">
         {authError ? (
           <div className="empty-cta">
-            <p className="empty-cta-icon">👥</p>
+            <p className="empty-cta-icon"><Icon name="people" /></p>
             <p>입장하지 못했습니다.</p>
             <p className="muted">{authError}</p>
             <button className="btn primary" onClick={trySignIn}>
@@ -110,7 +111,7 @@ export default function RoomListScreen({ sync, onEnterRoom }: Props) {
         <p className="muted">방을 불러오는 중…</p>
       ) : rooms.length === 0 ? (
         <div className="empty-cta">
-          <p className="empty-cta-icon">👥</p>
+          <p className="empty-cta-icon"><Icon name="people" /></p>
           <p>아직 열린 방이 없습니다.</p>
           <p className="muted">첫 방을 만들어 친구를 초대해 보세요.</p>
         </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchAnswers, fetchPlayers, type RoomAnswer, type RoomPlayer } from '../../lib/groupApi';
 import { rankPlayers } from '../../lib/groupScore';
+import Icon, { type IconName } from '../Icon';
 
 interface Props {
   roomId: string;
@@ -8,7 +9,7 @@ interface Props {
   onBackToRoom: () => void;
 }
 
-const MEDAL = ['🥇', '🥈', '🥉'];
+const MEDAL: IconName[] = ['medalGold', 'medalSilver', 'medalBronze'];
 
 /**
  * 최종 순위 화면. GroupQuizScreen이 들고 있던 live 상태를 그대로 넘겨받는 대신
@@ -73,7 +74,12 @@ export default function GroupResultScreen({ roomId, gameNo, onBackToRoom }: Prop
         {standings.map((s) => (
           <div key={s.userId} className="room-list-item" style={{ cursor: 'default' }}>
             <div className="room-list-title">
-              {MEDAL[s.rank - 1] ?? `${s.rank}위`} {nameOf(s.userId)}
+              {MEDAL[s.rank - 1] ? (
+                <Icon name={MEDAL[s.rank - 1]} className="inline-medal" />
+              ) : (
+                `${s.rank}위`
+              )}{' '}
+              {nameOf(s.userId)}
               {missingIds.includes(s.userId) && <span className="muted"> (나감)</span>}
             </div>
             <div className="room-list-meta muted">

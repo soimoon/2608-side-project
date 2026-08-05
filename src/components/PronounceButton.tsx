@@ -1,5 +1,6 @@
 import type { Pronunciation } from '../types';
 import { playAudio } from '../lib/pronounce';
+import Icon from './Icon';
 
 interface Props {
   pron?: Pronunciation;
@@ -57,7 +58,7 @@ export default function PronounceButton({ pron, showPhonetic = true, size = 'md'
         title={`발음 듣기 (미국식${phonetic ? ` · ${notationLabel} ${phonetic}` : ''})`}
         aria-label={`${pron.en} 발음 듣기`}
       >
-        🔊
+        <Icon name="speaker" />
       </button>
       {phonetic && (
         <span className="pron-ipa" title={notationLabel}>
