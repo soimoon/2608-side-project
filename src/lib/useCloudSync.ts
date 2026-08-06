@@ -227,10 +227,16 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
     if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      // GitHub Pages는 /voca-quiz/ 하위 경로에서 서빙되므로 origin만 쓰면 경로가 빠진다.
-      // 이 값이 Supabase의 Redirect URLs 허용 목록에 없으면 로그인 후 기본 Site URL로
-      // 돌아가려다 실패한다(폰에서 "서버에 연결할 수 없음" 형태로 나타남).
-      options: { redirectTo: window.location.origin + import.meta.env.BASE_URL },
+      options: {
+        // GitHub Pages는 /voca-quiz/ 하위 경로에서 서빙되므로 origin만 쓰면 경로가 빠진다.
+        // 이 값이 Supabase의 Redirect URLs 허용 목록에 없으면 로그인 후 기본 Site URL로
+        // 돌아가려다 실패한다(폰에서 "서버에 연결할 수 없음" 형태로 나타남).
+        redirectTo: window.location.origin + import.meta.env.BASE_URL,
+        // 브라우저에 구글 세션이 하나뿐이면 계정 선택 화면 없이 바로 그 계정으로
+        // 로그인돼 버린다 — 로그아웃 후 다른 계정으로 바꾸고 싶어도 선택지가 없었다.
+        // select_account를 강제하면 세션 개수와 무관하게 항상 계정 선택 창이 뜬다.
+        queryParams: { prompt: 'select_account' },
+      },
     });
   }, []);
 
