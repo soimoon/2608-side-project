@@ -9,6 +9,7 @@ import {
   Volume2,
   Medal,
   Crown,
+  GripVertical,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -25,6 +26,7 @@ const ICONS = {
   medalSilver: Medal,
   medalBronze: Medal,
   crown: Crown,
+  grip: GripVertical,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

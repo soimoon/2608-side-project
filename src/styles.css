@@ -799,21 +799,49 @@ input[type='radio'] {
   padding: 14px 18px;
   border-bottom: 1px solid var(--line);
 }
-/* 편집 모드에서는 순서 조절 버튼이 맨 앞에 한 열 더 붙는다. */
+/* 편집 모드에서는 드래그 손잡이가 맨 앞에 한 열 더 붙는다. */
 .study-row.editing {
   grid-template-columns: auto minmax(96px, 200px) 1fr;
   gap: 12px;
 }
-.study-reorder {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+/* touch-action:none이 핵심이다 — 이게 없으면 모바일에서 손잡이를 누른 채 세로로
+   끌 때 브라우저가 "페이지 스크롤"로 먼저 채가서 재정렬 제스처가 씹힌다. */
+.study-drag-handle {
   align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
-.study-reorder .btn {
-  padding: 2px 8px;
-  line-height: 1.2;
-  min-width: 32px;
+.study-drag-handle:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.study-drag-handle svg {
+  width: 18px;
+  height: 18px;
+}
+/* 드래그 중인 행 — 흐름 안에서 순서만 바뀔 뿐(별도로 떠 있는 카드가 아니다) 은은하게
+   들뜬 느낌만 준다. */
+.study-row.dragging {
+  position: relative;
+  z-index: 1;
+  background: var(--surface-2);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+.study-row.dragging .study-drag-handle {
+  cursor: grabbing;
+  color: var(--accent);
 }
 .study-row:last-child {
   border-bottom: none;
