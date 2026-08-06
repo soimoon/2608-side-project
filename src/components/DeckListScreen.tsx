@@ -3,9 +3,6 @@ import type { Word } from '../types';
 import { download, exportCSV, exportWordsJSON } from '../lib/storage';
 import CreateDeckModal from './CreateDeckModal';
 
-/** "새 단어장1", "새 단어장2"… 자동 이름 패턴. 아직 안 바꿨으면 목록에서 회색으로 보여준다. */
-const AUTO_NAME = /^새 단어장\d+$/;
-
 function nextAutoName(decks: string[]): string {
   let n = 1;
   while (decks.includes(`새 단어장${n}`)) n++;
@@ -61,7 +58,7 @@ export default function DeckListScreen({ words, decks, onCreateDeck, onSelectDec
       <div className="room-list">
         {decks.map((name) => (
           <button key={name} className="room-list-item" onClick={() => onSelectDeck(name)}>
-            <div className={`room-list-title ${AUTO_NAME.test(name) ? 'unnamed' : ''}`}>{name}</div>
+            <div className="room-list-title">{name}</div>
             <div className="room-list-meta muted">단어 {countOf(name)}개</div>
           </button>
         ))}

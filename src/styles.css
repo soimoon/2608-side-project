@@ -1415,10 +1415,6 @@ input[type='radio'] {
 .room-list-title {
   font-weight: 700;
 }
-.room-list-title.unnamed {
-  color: var(--muted);
-  font-weight: 500;
-}
 .room-list-meta {
   font-size: 0.85rem;
 }
