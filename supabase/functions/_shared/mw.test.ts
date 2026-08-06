@@ -143,6 +143,36 @@ describe('extractPronunciation', () => {
     ];
     expect(extractPronunciation(data, 'give up')?.phonetic).toBe('ɡɪv ˈʌp');
   });
+
+  // "quickly"처럼 규칙적으로 파생된 부사는 별도 표제어 없이 기본형(quick)의
+  // 굴절형(ins)으로만 실리는 경우가 많다. 이걸 못 읽으면 흔한 -ly 부사가 전부
+  // "발음 없음"이 된다.
+  it('표제어의 굴절형(ins)에 자체 발음이 있으면 그걸 가져온다', () => {
+    const data = [
+      {
+        meta: { id: 'quick' },
+        hwi: { hw: 'quick', prs: [{ ipa: 'ˈkwɪk' }] },
+        ins: [{ if: 'quick*ly', prs: [{ ipa: 'ˈkwɪkli', sound: { audio: 'quickl01' } }] }],
+      },
+    ];
+    const got = extractPronunciation(data, 'quickly');
+    expect(got).toEqual({
+      phonetic: 'ˈkwɪkli',
+      notation: 'ipa',
+      audioUrl: 'https://media.merriam-webster.com/audio/prons/en/us/mp3/q/quickl01.mp3',
+    });
+  });
+
+  it('굴절형 문자열이 정확히 일치하지 않으면 발음을 주지 않는다', () => {
+    const data = [
+      {
+        meta: { id: 'quick' },
+        hwi: { hw: 'quick' },
+        ins: [{ if: 'quick*er', prs: [{ ipa: 'ˈkwɪkər' }] }],
+      },
+    ];
+    expect(extractPronunciation(data, 'quickly')).toBeNull();
+  });
 });
 
 describe('lookupUrl', () => {

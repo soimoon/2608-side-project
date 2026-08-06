@@ -56,12 +56,22 @@ interface MwVariant {
   prs?: MwPrs[];
 }
 
+/** 굴절형(복수형, -ly/-ing/-ed 파생형 등). MW는 이런 규칙적인 파생어를 별도
+ *  표제어 없이 기본형 표제어의 굴절형으로만 싣는 경우가 많은데, 그때도 자체
+ *  발음(prs)이 실려 있으면 그걸 쓸 수 있다. */
+interface MwInflection {
+  /** 굴절형 표기. 음절 구분에 "*"를 쓴다(표제어와 동일한 관례). */
+  if?: string;
+  prs?: MwPrs[];
+}
+
 interface MwEntry {
   meta?: { id?: string };
   hwi?: { hw?: string; prs?: MwPrs[] };
   /** 철자 변형. 미국/영국 철자 차이(-ize/-ise 등)가 있는 단어는 본표제어 자리(hwi.prs)가
    *  비어 있고 여기에만 발음이 실리는 경우가 실제로 많다 (MW 응답으로 직접 확인). */
   vrs?: MwVariant[];
+  ins?: MwInflection[];
 }
 
 /** 표제어를 비교 가능한 형태로. MW는 음절 구분에 "*"를 쓴다 ("syn*the*size"). */
@@ -70,6 +80,24 @@ function headwordOf(entry: MwEntry): string {
   if (hw) return hw.trim().toLowerCase();
   // hw가 없으면 meta.id로 대체. 동형이의어는 "battle:2"처럼 뒤에 번호가 붙는다.
   return (entry.meta?.id ?? '').split(':')[0].trim().toLowerCase();
+}
+
+/** prs 후보 목록에서 첫 번째로 쓸 만한(발음기호 또는 음원이 있는) 것을 뽑는다. */
+function pickPronunciation(candidates: MwPrs[]): MwPronunciation | null {
+  for (const p of candidates) {
+    // Learner's의 ipa를 우선한다 — 한국 학습자에게는 MW 자체 표기보다 IPA가 읽기 쉽다.
+    const phonetic = p.ipa ?? p.mw;
+    const notation: Notation | undefined = p.ipa ? 'ipa' : p.mw ? 'mw' : undefined;
+    const file = p.sound?.audio;
+    if (!phonetic && !file) continue;
+
+    return {
+      phonetic: phonetic || undefined,
+      notation,
+      audioUrl: file ? audioUrl(file) : undefined,
+    };
+  }
+  return null;
 }
 
 /**
@@ -88,29 +116,29 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
 
   for (const entry of data as MwEntry[]) {
     if (!entry || typeof entry !== 'object') continue;
-    // 표제어(meta.id/hwi.hw)가 정확히 일치하는 항목만 쓴다 — 이 판정을 통과하면
-    // 그 항목 전체(hwi + vrs)가 "이 단어에 대한 것"이라고 신뢰할 수 있다.
-    if (headwordOf(entry) !== want) continue;
 
-    // 본표제어 발음이 우선이고, 없으면 철자 변형(vrs)의 발음을 쓴다. MW 문서상 vrs.prs는
-    // "그 변형 철자에 대한 것"이라 원칙적으로 본표제어 발음은 아니지만, 실제로는
-    // -ize/-ise처럼 소리가 사실상 같은 스펠링 변형에서 본표제어 쪽이 비어 있고
-    // vrs 쪽에만 발음이 실리는 경우가 흔하다(예: synthesize). 이미 표제어 자체는
-    // 위에서 확인했으므로 "엉뚱한 단어" 위험 없이 커버리지만 늘어난다.
-    const candidates = [...(entry.hwi?.prs ?? []), ...(entry.vrs ?? []).flatMap((v) => v.prs ?? [])];
+    // 표제어(meta.id/hwi.hw)가 정확히 일치하는 항목이면, 본표제어 발음이 우선이고
+    // 없으면 철자 변형(vrs)의 발음을 쓴다. MW 문서상 vrs.prs는 "그 변형 철자에 대한
+    // 것"이라 원칙적으로 본표제어 발음은 아니지만, 실제로는 -ize/-ise처럼 소리가
+    // 사실상 같은 스펠링 변형에서 본표제어 쪽이 비어 있고 vrs 쪽에만 발음이 실리는
+    // 경우가 흔하다(예: synthesize). 이미 표제어 자체는 위에서 확인했으므로
+    // "엉뚱한 단어" 위험 없이 커버리지만 늘어난다.
+    if (headwordOf(entry) === want) {
+      const candidates = [...(entry.hwi?.prs ?? []), ...(entry.vrs ?? []).flatMap((v) => v.prs ?? [])];
+      const found = pickPronunciation(candidates);
+      if (found) return found;
+    }
 
-    for (const p of candidates) {
-      // Learner's의 ipa를 우선한다 — 한국 학습자에게는 MW 자체 표기보다 IPA가 읽기 쉽다.
-      const phonetic = p.ipa ?? p.mw;
-      const notation: Notation | undefined = p.ipa ? 'ipa' : p.mw ? 'mw' : undefined;
-      const file = p.sound?.audio;
-      if (!phonetic && !file) continue;
-
-      return {
-        phonetic: phonetic || undefined,
-        notation,
-        audioUrl: file ? audioUrl(file) : undefined,
-      };
+    // 표제어 자체는 다른 단어(예: "quick")여도, 그 안의 굴절형(예: "quickly")이
+    // 조회어와 정확히 일치하면 그 굴절형의 발음을 쓴다. MW는 -ly/-ing/-ed처럼
+    // 규칙적으로 파생된 단어를 별도 표제어 없이 굴절형(ins)으로만 싣는 경우가
+    // 많아서, 이걸 안 보면 흔한 부사·활용형이 통째로 "발음 없음"이 된다. 굴절형
+    // 문자열 자체를 정확히 비교하므로 엉뚱한 단어 위험은 없다.
+    for (const inflection of entry.ins ?? []) {
+      const inflectionWord = inflection.if?.replace(/\*/g, '').trim().toLowerCase();
+      if (inflectionWord !== want) continue;
+      const found = pickPronunciation(inflection.prs ?? []);
+      if (found) return found;
     }
   }
   return null;
