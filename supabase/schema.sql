@@ -1093,7 +1093,10 @@ language sql stable security definer set search_path = public as $$
   select
     f.friend_id,
     p.display_name,
-    coalesce(p.last_seen_at > now() - interval '60 seconds', false),
+    -- profiles.last_seen_at(전역 접속 하트비트, 12초 주기)의 신선도 창. room_players
+    -- 쪽 60초(방 하트비트는 25초 주기)와는 별개 값이다 — 온라인 표시를 더 빠르게
+    -- 반영하려고 이쪽만 짧게 잡았다. usePresence.ts의 하트비트 주기와 짝을 맞춰야 한다.
+    coalesce(p.last_seen_at > now() - interval '30 seconds', false),
     exists (
       select 1 from room_players rp
       where rp.user_id = f.friend_id and rp.last_seen_at > now() - interval '60 seconds'
@@ -1101,7 +1104,7 @@ language sql stable security definer set search_path = public as $$
   from friends f
   join profiles p on p.id = f.friend_id
   where f.user_id = auth.uid()
-  order by coalesce(p.last_seen_at > now() - interval '60 seconds', false) desc,
+  order by coalesce(p.last_seen_at > now() - interval '30 seconds', false) desc,
            lower(p.display_name)
   limit 200;
 $$;
@@ -1119,7 +1122,7 @@ $$;
 
 -- 지금 이 방으로 불러도 방해가 안 되는 친구만. 네 조건을 전부 만족해야 한다:
 --   ① 개인 퀴즈 중이 아님 (presence_status = 'idle')
---   ② 접속 중            (last_seen_at이 60초 이내)
+--   ② 접속 중            (last_seen_at이 30초 이내)
 --   ③ 다른 단체게임 중이 아님 (신선한 room_players 행이 없음)
 --   ④ 이 방의 초대를 차단하지 않음 (room_invite_mutes)
 -- ③은 방 id를 따지지 않는다 — 이미 이 방에 들어와 있는 친구도 초대할 이유가 없으므로
@@ -1131,7 +1134,7 @@ language sql stable security definer set search_path = public as $$
   from friends f
   join profiles p on p.id = f.friend_id
   where f.user_id = auth.uid()
-    and coalesce(p.last_seen_at > now() - interval '60 seconds', false)
+    and coalesce(p.last_seen_at > now() - interval '30 seconds', false)
     and p.presence_status = 'idle'
     and not exists (
       select 1 from room_players rp

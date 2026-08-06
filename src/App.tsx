@@ -6,6 +6,7 @@ import { useTerms } from './lib/useTerms';
 import { usePresence } from './lib/usePresence';
 import { useFriends } from './lib/useFriends';
 import { useInviteInbox } from './lib/useInviteInbox';
+import { leaveRoom } from './lib/groupApi';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
 import {
   deleteWordsPermanently,
@@ -433,22 +434,31 @@ export default function App() {
     [sync.session],
   );
 
-  const navigate = useCallback((tab: Tab) => {
-    switch (tab) {
-      case 'words':
-        setScreen({ name: 'wordsHub' });
-        return;
-      case 'quiz':
-        setScreen({ name: 'quizHub' });
-        return;
-      case 'group':
-        setScreen({ name: 'group' });
-        return;
-      case 'profile':
-        setScreen({ name: 'profile' });
-        return;
-    }
-  }, []);
+  const navigate = useCallback(
+    (tab: Tab) => {
+      // 방 로비 안에서 "← 나가기"가 아니라 하단 네비로 바로 다른 탭을 누르면, RoomScreen이
+      // leave_room을 부를 기회 없이 그냥 언마운트된다 — 그러면 서버는 하트비트가 끊길
+      // 때까지(최대 60초) 여전히 방에 있는 걸로 본다. 여기서 한 번 더 명시적으로 불러서
+      // 그 지연을 없앤다. 게임이 시작돼 groupQuiz로 넘어갈 때는 이 경로를 안 타므로
+      // (그건 onGameStart가 처리) 게임 중인 참가자를 실수로 내보내는 일은 없다.
+      if (screen.name === 'room') void leaveRoom(screen.roomId);
+      switch (tab) {
+        case 'words':
+          setScreen({ name: 'wordsHub' });
+          return;
+        case 'quiz':
+          setScreen({ name: 'quizHub' });
+          return;
+        case 'group':
+          setScreen({ name: 'group' });
+          return;
+        case 'profile':
+          setScreen({ name: 'profile' });
+          return;
+      }
+    },
+    [screen],
+  );
 
   const goWordsHub = useCallback(() => setScreen({ name: 'wordsHub' }), []);
   const goFriends = useCallback(() => setScreen({ name: 'friends' }), []);

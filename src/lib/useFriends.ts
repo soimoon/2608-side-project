@@ -20,8 +20,10 @@ export interface UseFriendsResult {
 /**
  * 친구 목록 + 받은 요청. friend_requests/friends 테이블엔 select 정책이 없어(RPC
  * 전용, schema.sql 참고) postgres_changes 구독이 애초에 안 된다 — 그래서 방 화면처럼
- * Realtime을 쓰지 않고 20초 폴링 + 창 포커스 시 재조회로 충분히 신선하게 유지한다
- * (App.tsx의 revival_events pull이 쓰는 것과 같은 focus 패턴).
+ * Realtime을 쓰지 않고 8초 폴링 + 창 포커스 시 재조회로 신선하게 유지한다
+ * (App.tsx의 revival_events pull이 쓰는 것과 같은 focus 패턴). 온라인 표시가 굼떠
+ * 보인다는 피드백으로 원래 20초에서 줄였다 — usePresence.ts의 12초 하트비트·
+ * schema.sql의 30초 신선도 창과 함께 조정한 값이다.
  */
 export function useFriends(userId: string | undefined): UseFriendsResult {
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -45,7 +47,7 @@ export function useFriends(userId: string | undefined): UseFriendsResult {
     setLoading(true);
     void refetch().then(() => setLoading(false));
 
-    const interval = window.setInterval(() => void refetch(), 20_000);
+    const interval = window.setInterval(() => void refetch(), 8_000);
     window.addEventListener('focus', refetch);
     return () => {
       window.clearInterval(interval);

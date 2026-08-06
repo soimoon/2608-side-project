@@ -39,21 +39,22 @@ export function useInviteInbox(userId: string | undefined): UseInviteInboxResult
     const ch = client
       .channel(`user-invites:${userId}`)
       .on(
+        // INSERT와 UPDATE를 같이 받는다 — invite_friend RPC는 같은 방으로 재초대하면
+        // 새 행이 아니라 기존 행을 upsert(created_at만 갱신)하므로, INSERT만 구독하면
+        // "받았는데 안 눌러서 화면을 나간 뒤 다시 초대받는" 흔한 경우를 놓친다.
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'game_invites', filter: `to_id=eq.${userId}` },
+        { event: '*', schema: 'public', table: 'game_invites', filter: `to_id=eq.${userId}` },
         (payload) => {
+          if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id?: number }).id;
+            if (oldId === undefined) return;
+            setQueue((prev) => prev.filter((x) => x.id !== oldId));
+            return;
+          }
           const inv = fromGameInviteRow(payload.new as Parameters<typeof fromGameInviteRow>[0]);
           if (Date.now() - inv.createdAt >= STALE_MS) return;
-          setQueue((prev) => (prev.some((x) => x.id === inv.id) ? prev : [...prev, inv]));
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'game_invites', filter: `to_id=eq.${userId}` },
-        (payload) => {
-          const oldId = (payload.old as { id?: number }).id;
-          if (oldId === undefined) return;
-          setQueue((prev) => prev.filter((x) => x.id !== oldId));
+          // 재초대(UPDATE)로 이미 큐에 있던 항목이면 새 created_at으로 교체해 다시 보여준다.
+          setQueue((prev) => [...prev.filter((x) => x.id !== inv.id), inv]);
         },
       )
       .subscribe((status) => {
