@@ -27,8 +27,10 @@ jobs:
       - run: npm test
       - run: npm run build
         env:
-          # GitHub Pages는 /<repo>/ 하위 경로로 서빙된다.
-          VITE_BASE: /${{ github.event.repository.name }}/
+          # malssak.com 커스텀 도메인으로 루트 경로에서 서빙된다(public/CNAME 참고).
+          # 예전엔 https://<user>.github.io/<repo>/ 하위 경로라 VITE_BASE를 저장소
+          # 이름으로 맞췄지만, 커스텀 도메인부터는 vite.config.ts의 기본값 '/'을 그대로 쓴다.
+          VITE_BASE: /
           # 계정 기능을 아직 안 쓰면(Secrets 미설정) 둘 다 빈 값이 되고,
           # 앱은 자동으로 게스트 모드로 빌드된다 — 별도 분기 없이 그냥 통과시킨다.
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
