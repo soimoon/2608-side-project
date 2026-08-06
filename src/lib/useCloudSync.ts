@@ -246,11 +246,12 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
       provider: 'kakao',
       options: {
         redirectTo: window.location.origin + import.meta.env.BASE_URL,
-        // Supabase가 기본으로 account_email·profile_image까지 요청하는데, 카카오
-        // 개발자 콘솔엔 profile_nickname만 동의항목으로 등록해 뒀다 — 등록 안 한
-        // 항목을 요청하면 카카오가 인가 코드 발급 자체를 거부한다(KOE101). 실제로
-        // 등록한 항목만 명시해서 이 불일치를 없앤다.
-        scopes: 'profile_nickname',
+        // Supabase가 기본으로 account_email·profile_image까지 요청하는데, 예전엔
+        // 카카오 개발자 콘솔에 profile_nickname만 동의항목으로 등록돼 있어서
+        // 등록 안 한 항목 요청 시 KOE101로 거부됐다. 이후 비즈 앱 전환 + 세 항목
+        // 모두 선택 동의로 등록해 뒀으니, 여기서도 셋 다 명시해 둔다(각 항목은
+        // 선택 동의라 이용자가 거부해도 로그인 자체는 된다).
+        scopes: 'profile_nickname profile_image account_email',
       },
     });
   }, []);
