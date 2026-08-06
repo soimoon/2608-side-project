@@ -1,4 +1,5 @@
 import { isRealSession, type CloudSync } from '../lib/useCloudSync';
+import { GoogleIcon, KakaoIcon } from './BrandIcons';
 
 const STATUS_TEXT: Record<CloudSync['status'], string> = {
   guest: '',
@@ -28,9 +29,16 @@ export default function AuthBar({ sync }: Props) {
         <p className="muted">
           게스트 모드로 이용 중입니다. 브라우저 데이터를 지우면 단어장을 잃을 수 있어요.
         </p>
-        <button className="btn primary sm" onClick={sync.signInWithGoogle}>
-          Google 계정 연결하기
-        </button>
+        <div className="row wrap">
+          <button className="btn oauth google sm" onClick={sync.signInWithGoogle}>
+            <GoogleIcon size={15} />
+            Google 계정 연결하기
+          </button>
+          <button className="btn oauth kakao sm" onClick={sync.signInWithKakao}>
+            <KakaoIcon size={15} />
+            카카오 계정 연결하기
+          </button>
+        </div>
       </div>
     );
   }

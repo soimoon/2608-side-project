@@ -48,6 +48,7 @@ export interface CloudSync {
   pendingMerge: PendingMerge | null;
   confirmMerge: (choice: MergeChoice) => void;
   signInWithGoogle: () => Promise<void>;
+  signInWithKakao: () => Promise<void>;
   /**
    * 단체게임 전용 임시 로그인. 계정 생성·비밀번호 없이 즉시 auth.uid()를 받는다 —
    * 시크릿 창마다 서로 다른 임시 사용자가 되므로, 기기 하나로도 "여러 명"을 흉내 내며
@@ -233,6 +234,14 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
     });
   }, []);
 
+  const signInWithKakao = useCallback(async () => {
+    if (!supabase) return;
+    await supabase.auth.signInWithOAuth({
+      provider: 'kakao',
+      options: { redirectTo: window.location.origin + import.meta.env.BASE_URL },
+    });
+  }, []);
+
   const signInAnonymously = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
     if (!supabase) return { ok: false, error: '클라우드 설정이 없습니다.' };
     // auth 메서드는 실패해도 throw하지 않고 error를 돌려줄 뿐이다 — 여기서 확인 안 하면
@@ -259,6 +268,7 @@ export function useCloudSync(db: DB, setDB: Dispatch<SetStateAction<DB>>): Cloud
     pendingMerge,
     confirmMerge,
     signInWithGoogle,
+    signInWithKakao,
     signInAnonymously,
     signOut,
   };

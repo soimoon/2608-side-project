@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { CloudSync } from '../lib/useCloudSync';
+import { GoogleIcon, KakaoIcon } from './BrandIcons';
 
 interface Props {
   sync: CloudSync;
@@ -15,6 +16,7 @@ interface Props {
  */
 export default function LandingScreen({ sync }: Props) {
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [kakaoLoading, setKakaoLoading] = useState(false);
   const [guestLoading, setGuestLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -25,6 +27,13 @@ export default function LandingScreen({ sync }: Props) {
     // 성공하면 OAuth 리다이렉트로 페이지 자체가 새로고침되므로 여기로 못 돌아온다.
     // 실패(팝업 차단 등)했을 때만 로딩이 풀린 채로 남는다.
     setGoogleLoading(false);
+  }
+
+  async function startKakao() {
+    setKakaoLoading(true);
+    setError('');
+    await sync.signInWithKakao();
+    setKakaoLoading(false);
   }
 
   async function startGuest() {
@@ -42,8 +51,14 @@ export default function LandingScreen({ sync }: Props) {
         <p className="muted">한글 뜻을 보고 영단어를 직접 타이핑하며 외우는 퀴즈</p>
 
         <div className="landing-actions">
-          <button className="btn primary lg" disabled={googleLoading} onClick={startGoogle}>
-            {googleLoading ? '연결하는 중…' : 'Google로 계속하기'}
+          <button className="btn oauth google lg" disabled={googleLoading} onClick={startGoogle}>
+            <GoogleIcon />
+            {googleLoading ? '연결하는 중…' : 'Google로 로그인'}
+          </button>
+
+          <button className="btn oauth kakao lg" disabled={kakaoLoading} onClick={startKakao}>
+            <KakaoIcon />
+            {kakaoLoading ? '연결하는 중…' : '카카오로 로그인'}
           </button>
 
           <button className="btn ghost lg" disabled={guestLoading} onClick={startGuest}>

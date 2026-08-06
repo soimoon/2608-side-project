@@ -210,6 +210,30 @@ code {
   color: var(--on-accent);
   font-weight: 600;
 }
+/* ---------- 소셜 로그인 버튼 ---------- */
+/* 아이콘 + 라벨 가로 배치. 구글/카카오 둘 다 브랜드 마크가 왼쪽에 붙는 표준
+   형태라 공용으로 뺐다. */
+.btn.oauth {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+/* 구글 공식 가이드의 "Neutral" 버튼 톤 — 흰 배경 고정 대신 테마 surface/line을
+   써서 블랙&화이트 다크에서도 카드처럼 자연스럽게 섞인다. */
+.btn.google {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--text);
+  font-weight: 600;
+}
+/* 카카오 공식 브랜드 색 — 테마 accent와 무관하게 항상 이 노란색이어야 한국
+   사용자에게 "카카오 로그인"으로 바로 인식된다. */
+.btn.kakao {
+  background: #fee500;
+  color: #191919;
+  font-weight: 600;
+}
 .btn.ghost {
   background: transparent;
   border-color: var(--line);
