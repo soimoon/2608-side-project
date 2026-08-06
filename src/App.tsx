@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Attempt, ClaimKind, DB, QuizSettings, SessionResult, Theme, Word } from './types';
 import { activeWords, dedupeWordsById, loadDB, newId, saveDB } from './lib/storage';
 import { isRealSession, useCloudSync } from './lib/useCloudSync';
+import { useTerms } from './lib/useTerms';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
 import {
   deleteWordsPermanently,
@@ -16,6 +17,7 @@ import { REVIVAL_STREAK_GOAL, claimKey, kstDateKey } from './lib/attendance';
 import { allDeckNames, pickRevivalWords, revivalPool } from './lib/select';
 import BottomNav, { type Tab } from './components/BottomNav';
 import LandingScreen from './components/LandingScreen';
+import TermsGate from './components/TermsGate';
 import MergeDialog from './components/MergeDialog';
 import ProfileScreen from './components/ProfileScreen';
 import WordsHub from './components/WordsHub';
@@ -108,6 +110,10 @@ export default function App() {
 
   // 로그인 안 해도(.env.local 미설정 포함) 완전히 잠들어 있는 훅. 게스트 모드에 영향 없음.
   const sync = useCloudSync(db, setDB);
+
+  // 구글/카카오 등 실계정에만 필요한 약관 동의 상태. 게스트(익명)는 userId를 안 넘겨
+  // 훅이 아무 일도 안 하게 한다 — Rules of Hooks 때문에 호출 자체는 항상 한다.
+  const terms = useTerms(isRealSession(sync.session) ? sync.session.user.id : undefined);
 
   // 테마는 <html data-theme="..."> 로 CSS에 반영한다. 오프라인에서도 즉시 적용되도록
   // 로컬 db.theme을 정본으로 쓰고, 로그인 상태면 바뀔 때마다 계정에도 올린다.
@@ -637,6 +643,19 @@ export default function App() {
     return (
       <div className="app">
         <LandingScreen sync={sync} />
+      </div>
+    );
+  }
+
+  // 실계정으로 처음 로그인하면 개인정보를 수집하기 전에 약관 동의부터 받는다.
+  // 게스트(익명)는 개인정보를 안 모으므로 대상이 아니다(terms.loading도 계속 false).
+  if (isRealSession(sync.session) && terms.loading) {
+    return <div className="app" />;
+  }
+  if (isRealSession(sync.session) && !terms.agreed) {
+    return (
+      <div className="app">
+        <TermsGate onAgree={terms.agree} />
       </div>
     );
   }

@@ -14,11 +14,16 @@ create table if not exists profiles (
   nickname_set boolean not null default false,
   -- 마지막으로 고른 색 테마. 로그인 시 이 값을 불러와 다른 기기에도 적용한다.
   theme text not null default 'blue',
+  -- 이용약관·개인정보처리방침에 동의한 시각. null이면 아직 동의 전 —
+  -- 구글/카카오 등 실계정으로 처음 로그인하면 앱 진입 전에 동의 화면을 강제로
+  -- 띄운다(게스트 익명 계정은 개인정보를 수집하지 않으므로 대상이 아니다).
+  terms_agreed_at timestamptz,
   created_at timestamptz not null default now()
 );
 
 -- 이미 profiles 테이블이 있는 프로젝트를 위한 추가 구문.
 alter table profiles add column if not exists nickname_set boolean not null default false;
+alter table profiles add column if not exists terms_agreed_at timestamptz;
 
 -- 닉네임 형식 강제: 영문·숫자·한글만, 1~10자. 제약을 걸기 전에 이미 들어가 있는(예:
 -- 옛 가입 트리거가 구글 실명/이메일로 자동 채웠던 시절의) 위반 데이터를 먼저 비운다
