@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { CloudSync } from '../lib/useCloudSync';
-import { GoogleIcon, KakaoIcon } from './BrandIcons';
+import { GoogleIcon, KakaoIcon, SproutMark } from './BrandIcons';
 
 interface Props {
   sync: CloudSync;
@@ -47,8 +47,9 @@ export default function LandingScreen({ sync }: Props) {
   return (
     <div className="screen landing">
       <div className="landing-body">
+        <SproutMark size={72} />
         <h1 className="landing-title">말싹</h1>
-        <p className="muted">영단어가 자라는 퀴즈</p>
+        <p className="landing-tagline">영단어가 자라는 퀴즈</p>
 
         <div className="landing-actions">
           <button className="btn oauth google lg" disabled={googleLoading} onClick={startGoogle}>

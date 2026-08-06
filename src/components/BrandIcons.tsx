@@ -30,6 +30,19 @@ export function GoogleIcon({ size = 18 }: { size?: number }) {
   );
 }
 
+/** "말싹" 워드마크 옆에 붙는 새싹 심볼. 앱 아이콘·파비콘과 같은 모양이라
+ * 랜딩 화면과 브라우저 탭·홈 화면 아이콘이 한눈에 같은 걸로 읽힌다. */
+export function SproutMark({ size = 72, color = '#ffffff' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <path d="M64 108 C64 96 64 86 64 78" stroke={color} strokeWidth="8" strokeLinecap="round" fill="none" />
+      <path d="M64,82 C44,82 24,68 30,36 C50,42 64,56 64,82 Z" fill={color} />
+      <path d="M64,82 C84,82 104,68 98,36 C78,42 64,56 64,82 Z" fill={color} />
+      <ellipse cx="64" cy="109" rx="19" ry="5.5" fill={color} opacity="0.9" />
+    </svg>
+  );
+}
+
 export function KakaoIcon({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
