@@ -34,6 +34,9 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
   const [authError, setAuthError] = useState('');
   const [startError, setStartError] = useState('');
   const [starting, setStarting] = useState(false);
+  // null이면 "아직 안 골랐으면 펼치고, 골랐으면 접는다"는 자동 규칙을 따른다.
+  // 사용자가 토글을 직접 누르면 그 뒤로는 이 값이 자동 규칙을 덮어쓴다.
+  const [sourcePickerOverride, setSourcePickerOverride] = useState<boolean | null>(null);
 
   function trySignIn() {
     setAuthError('');
@@ -162,9 +165,11 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
     : freshCount < 2
       ? '최소 2명이 있어야 시작할 수 있습니다.'
       : '';
+  // 아직 안 골랐으면 자동으로 펼쳐서 보여주고, 골랐으면 접어 채팅에 자리를 내준다.
+  const showSourcePicker = sourcePickerOverride ?? !me?.sourceLabel;
 
   return (
-    <div className="screen">
+    <div className="screen room-layout">
       <div className="topbar">
         <button className="btn ghost" onClick={handleLeave}>
           ← 나가기
@@ -173,7 +178,7 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
         <div className="topbar-right" />
       </div>
 
-      <p className="muted">
+      <p className="muted room-meta">
         {SPEED_LABEL[room.speed]} · {room.roundCount}문제
       </p>
 
@@ -186,15 +191,24 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
         onKick={kick}
       />
 
-      <SourcePicker
-        roomId={roomId}
-        words={words}
-        decks={decks}
-        currentLabel={me?.sourceLabel ?? null}
-        onSelected={() => {
-          /* room_players 갱신은 realtime 구독이 알아서 반영한다 */
-        }}
-      />
+      <div className="source-summary">
+        <span className="source-summary-text">
+          내 단어장: {me?.sourceLabel ? `"${me.sourceLabel}"` : '아직 선택 안 함'}
+        </span>
+        <button className="btn ghost sm" onClick={() => setSourcePickerOverride(!showSourcePicker)}>
+          {showSourcePicker ? '접기' : '바꾸기'}
+        </button>
+      </div>
+
+      {showSourcePicker && (
+        <SourcePicker
+          roomId={roomId}
+          words={words}
+          decks={decks}
+          currentLabel={me?.sourceLabel ?? null}
+          onSelected={() => setSourcePickerOverride(false)}
+        />
+      )}
 
       {isHost ? (
         <div className="sticky-actions">

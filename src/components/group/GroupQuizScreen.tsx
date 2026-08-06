@@ -7,7 +7,7 @@ import type { Schedule } from '../../lib/lockstep';
 import { judge } from '../../lib/judge';
 import { hintStageAt, progressiveMask } from '../../lib/groupMask';
 import { correctScore, fastestCorrectUserId, rankPlayers } from '../../lib/groupScore';
-import { FRESH_WINDOW_MS, leaveRoom } from '../../lib/groupApi';
+import { leaveRoom } from '../../lib/groupApi';
 import Icon from '../Icon';
 
 interface Props {
@@ -19,6 +19,8 @@ interface Props {
    *  바로 다시 게임 화면으로 튕겨 보낸다(실제로 있었던 버그). */
   onLeft: () => void;
 }
+
+const REACTION_EMOJIS = ['👍', '😂', '😮', '😢', '🔥'];
 
 const VERDICT_TEXT: Record<Verdict, string> = {
   correct: '정답!',
@@ -35,7 +37,7 @@ const VERDICT_TEXT: Record<Verdict, string> = {
  */
 export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props) {
   const userId = sync.session?.user.id;
-  const { room, players, answers, loading, submit, finish } = useGroupGame(roomId, userId);
+  const { room, players, answers, reactions, loading, submit, finish, sendReaction } = useGroupGame(roomId, userId);
 
   const schedule: Schedule = useMemo(
     () => ({
@@ -92,18 +94,10 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
     void finish().then(() => onEnded(roomId, room.gameNo));
   }, [phase.kind, room, finish, onEnded, roomId]);
 
-  // 다른 사람들이 다 나가서(또는 접속이 끊겨서) 신선한 참가자가 1명 이하로 남으면,
-  // 남은 사람이 시계가 다 돌 때까지 혼자 기다릴 필요 없이 그 자리에서 게임을 끝내고
-  // 자동으로 1등 처리한다. finish_game이 이 경우엔 스케줄 종료 전이어도 허용한다
-  // (schema.sql 참고). 신선도 판정은 join_room 등 서버 쪽과 같은 60초 창을 쓴다.
-  const freshCount = players.filter((p) => Date.now() - p.lastSeenAt < FRESH_WINDOW_MS).length;
-  useEffect(() => {
-    if (endedRef.current || !room) return;
-    if (phase.kind === 'not-started' || phase.kind === 'ended') return;
-    if (freshCount > 1) return;
-    endedRef.current = true;
-    void finish().then(() => onEnded(roomId, room.gameNo));
-  }, [freshCount, phase.kind, room, finish, onEnded, roomId]);
+  // 다른 사람이 다 나가도(또는 접속이 끊겨도) 혼자 조기 종료하지 않는다 — 끝까지
+  // 스케줄대로 풀고, 나간 사람은 결과 화면에서 "플레이어N"으로 표시된 채 그때까지의
+  // 점수로 순위에 들어간다(GroupResultScreen 참고). 방을 나가는 사람 자신은
+  // leave_room이 처리한다(전원이 나가면 방 자체가 삭제됨 — schema.sql leave_room).
 
   async function handleLeave() {
     await leaveRoom(roomId);
@@ -164,6 +158,9 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
       answers.map((a) => ({ userId: a.userId, roundIndex: a.roundIndex, verdict: a.verdict, elapsedMs: a.elapsedMs, points: a.points })),
       roundIndex,
     );
+    // 리액션은 유저당 최신 것 하나만 보여준다 — 여러 번 눌러도 이름 옆에 하나만 뜬다.
+    const latestReaction = new Map<string, string>();
+    for (const r of reactions) latestReaction.set(r.userId, r.emoji);
     return (
       <div className="screen quiz">
         <div className="quiz-top">
@@ -191,6 +188,9 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
                   <span className="player-name">
                     {p.displayName}
                     {p.userId === fastestId && <Icon name="medalGold" className="inline-medal rank-gold" />}
+                    {latestReaction.has(p.userId) && (
+                      <span className="reaction-badge">{latestReaction.get(p.userId)}</span>
+                    )}
                   </span>
                   <span className={`verdict ${a?.verdict ?? 'wrong'}`}>
                     {a ? `${VERDICT_TEXT[a.verdict]} · ${a.points}점` : '미제출'}
@@ -199,6 +199,13 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
               );
             })}
           </ul>
+          <div className="reaction-bar">
+            {REACTION_EMOJIS.map((e) => (
+              <button key={e} className="reaction-btn" onClick={() => sendReaction(e)} aria-label={`${e} 리액션 보내기`}>
+                {e}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     );
