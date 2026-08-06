@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Attempt, ClaimKind, DB, QuizSettings, SessionResult, Theme, Word } from './types';
 import { activeWords, dedupeWordsById, loadDB, newId, saveDB } from './lib/storage';
-import { useCloudSync } from './lib/useCloudSync';
+import { isRealSession, useCloudSync } from './lib/useCloudSync';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
 import {
+  deleteWordsPermanently,
   pullDailyClaims,
   pullRevivalEvents,
   pullTheme,
@@ -219,12 +220,28 @@ export default function App() {
     [decks],
   );
 
-  /** 휴지통에서 완전 삭제 — 목록에서만 뺀다. 단어 자체는 이미 소프트 삭제 상태라
-   *  화면 어디에도 안 보이니 사실상 영구히 사라진 것과 같다(다른 기기 동기화
-   *  안전을 위해 words 배열에서 실제로 지우지는 않는다 — Word.deletedAt 주석 참고). */
-  const purgeDeck = useCallback((name: string) => {
-    setDB((d) => ({ ...d, deletedDecks: d.deletedDecks.filter((x) => x.name !== name) }));
-  }, []);
+  /**
+   * 휴지통에서 완전 삭제 — words 배열에서도 실제로 지운다. 처음엔 "소프트 삭제
+   * 상태로 그냥 두고 목록에서만 뺀다"로 했었는데, 그러면 나중에 같은 이름의
+   * 단어장을 새로 만들었을 때 그 유령 단어들이 deck 필드가 같다는 이유만으로
+   * 새 단어장 것과 섞여 보이는 버그가 있었다(휴지통 미리보기에서 발견됨) —
+   * "완전 삭제"라는 이름값대로 진짜 지워야 이 문제 자체가 안 생긴다.
+   * 로그인 상태면 서버 행도 같이 지운다(sync.ts deleteWordsPermanently 주석 참고).
+   */
+  const purgeDeck = useCallback(
+    (name: string) => {
+      const idsToRemove = db.words.filter((w) => w.deck === name && w.deletedAt).map((w) => w.id);
+      setDB((d) => ({
+        ...d,
+        deletedDecks: d.deletedDecks.filter((x) => x.name !== name),
+        words: d.words.filter((w) => !(w.deck === name && w.deletedAt)),
+      }));
+      if (isRealSession(sync.session) && idsToRemove.length > 0) {
+        void deleteWordsPermanently(sync.session.user.id, idsToRemove);
+      }
+    },
+    [db.words, sync.session],
+  );
 
   /** 단어 없이 미리 만들어 두는 빈 단어장. 이름 충돌이면 만들지 않고 에러를 돌려준다
    *  (DeckListScreen이 "새 단어장N" 제안 이름을 여기로 그대로 넘길 수도 있다). 휴지통에

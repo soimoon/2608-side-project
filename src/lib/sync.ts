@@ -135,6 +135,22 @@ export async function pushWords(
   }
 }
 
+/**
+ * 휴지통에서 완전 삭제할 때 부른다. 그때까지는 소프트 삭제(deleted_at)만 해 뒀던
+ * 행을 서버에서도 진짜로 지운다 — 안 지우면 나중에 새 기기가 pullAllWords로 전체를
+ * 받아올 때 이 "유령" 행이 되살아나, 같은 이름의 단어장을 나중에 또 만들었을 때
+ * 그 유령 단어들과 뒤섞여 보이는 문제가 있었다. 실패해도 조용히 넘어간다 — 로컬은
+ * 이미 지워졌고, 서버에 유령 행이 남아도 소프트 삭제 상태라 화면엔 안 보인다.
+ */
+export async function deleteWordsPermanently(userId: string, wordIds: string[]): Promise<void> {
+  if (!supabase || wordIds.length === 0) return;
+  try {
+    await supabase.from('words').delete().eq('user_id', userId).in('id', wordIds);
+  } catch {
+    /* no-op */
+  }
+}
+
 export interface MergeOutcome {
   words: Word[];
   summary: string;
