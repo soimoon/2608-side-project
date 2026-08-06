@@ -270,6 +270,22 @@ export function activeWords(words: Word[]): Word[] {
   return words.filter((w) => !w.deletedAt);
 }
 
+/**
+ * id가 같은 항목이 두 개 이상이면 가장 최근에 바뀐 것만 남긴다. 정상 흐름에서는
+ * 애초에 중복이 생기면 안 되지만(Supabase의 words.id가 PK라 upsert가 행을
+ * 덮어써야 정상), 클라우드 동기화 경쟁 상태(예: pull 병합 도중 다른 pull이
+ * 겹치는 경우) 등 흔치 않은 경로로 같은 id가 두 번 들어올 가능성을 대비한
+ * 방어 로직이다. App.tsx가 db.words가 바뀔 때마다 이걸로 한 번 걸러 낸다.
+ */
+export function dedupeWordsById(words: Word[]): Word[] {
+  const byId = new Map<string, Word>();
+  for (const w of words) {
+    const prev = byId.get(w.id);
+    if (!prev || w.updatedAt >= prev.updatedAt) byId.set(w.id, w);
+  }
+  return byId.size === words.length ? words : [...byId.values()];
+}
+
 export function saveDB(db: DB): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(db));

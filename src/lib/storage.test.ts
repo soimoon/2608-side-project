@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { loadDB, saveDB } from './storage';
+import { dedupeWordsById, loadDB, saveDB } from './storage';
+import type { Word } from '../types';
 
 /**
  * vitest 기본 환경(node)에는 localStorage가 없다. 실제 브라우저 Storage와 같은 동기 동작을
@@ -360,5 +361,39 @@ describe('loadDB (v1 → v7 마이그레이션)', () => {
     expect(reloaded.theme).toBe('pink');
     expect(reloaded.dailyMission).toEqual({ date: '2026-08-04', revivedWordIds: ['w1', 'w2', 'w3'] });
     expect(reloaded.dailyClaims).toEqual(['2026-08-04:attendance', '2026-08-04:mission_revive']);
+  });
+});
+
+describe('dedupeWordsById', () => {
+  function word(id: string, updatedAt: number, patch: Partial<Word> = {}): Word {
+    return {
+      id,
+      en: 'exploit',
+      ko: ['이용하다'],
+      deck: '기본',
+      createdAt: updatedAt,
+      updatedAt,
+      stats: { seen: 0, correct: 0, wrong: 0, streak: 0 },
+      ...patch,
+    };
+  }
+
+  it('중복 없으면 같은 배열 참조를 그대로 돌려준다', () => {
+    const words = [word('a', 1), word('b', 2)];
+    expect(dedupeWordsById(words)).toBe(words);
+  });
+
+  it('같은 id가 두 번 있으면 하나로 합치고, updatedAt이 더 최근인 쪽을 남긴다', () => {
+    const older = word('a', 1, { deletedAt: 100 });
+    const newer = word('a', 2, { deletedAt: undefined });
+    const result = dedupeWordsById([older, newer]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(newer);
+  });
+
+  it('순서와 무관하게 항상 최신 것을 남긴다', () => {
+    const older = word('a', 1);
+    const newer = word('a', 2);
+    expect(dedupeWordsById([newer, older])[0]).toBe(newer);
   });
 });

@@ -12,6 +12,8 @@ function nextAutoName(decks: string[]): string {
 
 interface Props {
   words: Word[];
+  /** 소프트 삭제된 것까지 포함한 전체 단어 — 휴지통 미리보기에 필요하다. */
+  allWords: Word[];
   decks: string[];
   deletedDecks: DeletedDeck[];
   /** 방금 이 화면으로 넘어오게 만든 동작(삭제 등)이 있으면 한 번 보여준다. */
@@ -30,6 +32,7 @@ interface Props {
  */
 export default function DeckListScreen({
   words,
+  allWords,
   decks,
   deletedDecks,
   notice,
@@ -96,7 +99,7 @@ export default function DeckListScreen({
 
       {showCreate && (
         <CreateDeckModal
-          suggestedName={nextAutoName(decks)}
+          suggestedName={nextAutoName([...decks, ...deletedDecks.map((d) => d.name)])}
           onCreate={onCreateDeck}
           onClose={() => setShowCreate(false)}
         />
@@ -105,6 +108,7 @@ export default function DeckListScreen({
       {showTrash && (
         <TrashModal
           deletedDecks={deletedDecks}
+          words={allWords}
           onRestore={onRestoreDeck}
           onPurge={onPurgeDeck}
           onClose={() => setShowTrash(false)}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Attempt, ClaimKind, DB, QuizSettings, SessionResult, Theme, Word } from './types';
-import { activeWords, loadDB, newId, saveDB } from './lib/storage';
+import { activeWords, dedupeWordsById, loadDB, newId, saveDB } from './lib/storage';
 import { useCloudSync } from './lib/useCloudSync';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
 import {
@@ -74,6 +74,15 @@ export default function App() {
   useEffect(() => {
     saveDB(db);
   }, [db]);
+
+  // 방어적 자가 치유: 클라우드 동기화 경쟁 상태 등 드문 경로로 같은 단어(id)가
+  // db.words에 두 번 들어가는 일이 생기면, 다음 렌더에서 조용히 하나로 합친다.
+  // dedupeWordsById는 중복이 없으면 같은 배열 참조를 그대로 돌려주므로 평소엔
+  // 이 setDB가 아예 안 불린다.
+  useEffect(() => {
+    const deduped = dedupeWordsById(db.words);
+    if (deduped !== db.words) setDB((d) => ({ ...d, words: deduped }));
+  }, [db.words]);
 
   // 콜백이 최신 db를 읽되 db가 바뀔 때마다 새로 만들어지지 않도록 하는 참조.
   const dbRef = useRef(db);
@@ -218,16 +227,21 @@ export default function App() {
   }, []);
 
   /** 단어 없이 미리 만들어 두는 빈 단어장. 이름 충돌이면 만들지 않고 에러를 돌려준다
-   *  (DeckListScreen이 "새 단어장N" 제안 이름을 여기로 그대로 넘길 수도 있다). */
+   *  (DeckListScreen이 "새 단어장N" 제안 이름을 여기로 그대로 넘길 수도 있다). 휴지통에
+   *  있는 이름도 막는다 — 안 막으면 같은 이름의 단어장이 휴지통과 목록에 동시에 있게
+   *  되고, 나중에 휴지통 걸 복원하려 할 때만 뒤늦게 막혀서 헷갈린다. */
   const createDeck = useCallback(
     (name: string): { ok: boolean; error?: string } => {
       const trimmed = name.trim();
       if (!trimmed) return { ok: false, error: '이름을 입력하세요.' };
       if (decks.includes(trimmed)) return { ok: false, error: `이미 있는 단어장입니다: ${trimmed}` };
+      if (db.deletedDecks.some((x) => x.name === trimmed)) {
+        return { ok: false, error: `"${trimmed}"은(는) 휴지통에 있습니다. 복원하거나 다른 이름을 쓰세요.` };
+      }
       setDB((d) => (d.decks.includes(trimmed) ? d : { ...d, decks: [...d.decks, trimmed] }));
       return { ok: true };
     },
-    [decks],
+    [decks, db.deletedDecks],
   );
 
   /** 단어장 이름을 바꾼다 — db.decks 항목과 그 단어장 소속 단어 전체의 deck 필드를 같이 옮긴다. */
@@ -439,6 +453,7 @@ export default function App() {
         return (
           <DeckListScreen
             words={words}
+            allWords={db.words}
             decks={decks}
             deletedDecks={db.deletedDecks}
             notice={screen.notice}

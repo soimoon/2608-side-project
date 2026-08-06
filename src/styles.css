@@ -1436,17 +1436,48 @@ input[type='radio'] {
 .room-list-item.add-new:hover {
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
 }
-/* 휴지통 안 항목 — 버튼이 아니라 div라 :hover 강조가 없고, 이름과 복원/완전
-   삭제 버튼을 한 줄에 양쪽으로 배치한다. */
-.room-list-item.trash-item {
+/* 휴지통 안 항목. 바깥(.trash-item-block)은 카드 하나고, 그 안에 이름·버튼이 한
+   줄로 있는 헤더 행(.trash-item)과, 이름을 눌렀을 때만 펼쳐지는 단어 목록이 있다. */
+.room-list-item.trash-item-block {
+  cursor: default;
+}
+.room-list-item.trash-item-block:hover {
+  border-color: var(--line);
+}
+.trash-item {
+  display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  cursor: default;
   gap: 10px;
+  width: 100%;
 }
-.room-list-item.trash-item:hover {
-  border-color: var(--line);
+.trash-item-name {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+.trash-item-count {
+  font-weight: 400;
+}
+.trash-word-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.88rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.trash-word-list .en {
+  font-family: var(--mono);
 }
 /* 단어장 상세 화면 제목 — 눌러서 이름을 바꿀 수 있다는 걸 커서로 암시한다. */
 .deck-detail-title {
