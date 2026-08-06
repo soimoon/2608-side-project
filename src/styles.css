@@ -1415,8 +1415,37 @@ input[type='radio'] {
 .room-list-title {
   font-weight: 700;
 }
+.room-list-title.unnamed {
+  color: var(--muted);
+  font-weight: 500;
+}
 .room-list-meta {
   font-size: 0.85rem;
+}
+/* 단어장 목록 맨 끝의 "+ 새 단어장 생성" 블록 — 나머지 블록과 같은 크기지만
+   점선 테두리로 "만들기" 동작임을 구분한다. */
+.room-list-item.add-new {
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  color: var(--accent);
+  font-weight: 600;
+}
+.room-list-item.add-new:hover {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+/* 단어장 상세 화면 제목 — 눌러서 이름을 바꿀 수 있다는 걸 커서로 암시한다. */
+.deck-detail-title {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--line);
+}
+.deck-rename-row {
+  flex: 1;
+  align-items: center;
+}
+.deck-rename-row input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ---------- 단체게임: 참가자 목록 ---------- */

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Pronunciation, Word } from '../types';
 import { guessSplit, parseBulk } from '../lib/parse';
-import { DEFAULT_DECK, download, exportCSV, exportWordsJSON, makeWord } from '../lib/storage';
+import { makeWord } from '../lib/storage';
 import { lookupCache, missingFromCache } from '../lib/pronounce';
 import ImportReview, { type ReviewRow } from './ImportReview';
 import PronounceButton from './PronounceButton';
@@ -13,78 +13,76 @@ ubiquitous\t어디에나 있는
 분명한  apparent`;
 
 interface Props {
+  deckName: string;
+  /** 활성 단어 전체(이 단어장뿐 아니라) — 중복 등록 검사와 "다른 단어장으로 옮기기" 선택지에 필요하다. */
   words: Word[];
   setWords: (updater: (prev: Word[]) => Word[]) => void;
-  /** 단어에서 드러나는 단어장 + 미리 만들어 둔 빈 단어장을 합친 전체 목록. */
   decks: string[];
-  /** 단어 없이 빈 단어장만 미리 만들어 둔다. */
-  onCreateDeck: (name: string) => void;
-  /** "이 단어장 삭제" 시 목록에서도 완전히 지운다. */
+  onRenameDeck: (oldName: string, newName: string) => { ok: boolean; error?: string };
   onRemoveDeckName: (name: string) => void;
   pronunciations: Record<string, Pronunciation>;
-  /** 아직 캐시에 없는 단어의 발음을 받아온다. 로그인·설정이 없으면 아무 일도 하지 않는다. */
   onFetchPronunciations: (targets: Word[]) => Promise<void>;
+  /** 단어장 목록으로 돌아간다. 이 단어장을 삭제한 뒤에도 부른다. */
   onBack: () => void;
 }
 
-export default function WordManager({
+/**
+ * 단어장 하나의 상세 화면. 예전 WordManager는 모든 단어장의 단어 추가·수정을 한
+ * 화면에서 다 했는데, 지금 보고 있는 단어가 어느 단어장 건지 헷갈린다는 피드백으로
+ * DeckListScreen(목록) → 여기(단어장 하나) 2단계로 나눴다. 그래서 단어장 선택 UI가
+ * 필요했던 자리(붙여넣기 대상, 단어 직접 추가 폼)는 전부 deckName으로 고정된다.
+ */
+export default function DeckDetailScreen({
+  deckName,
   words,
   setWords,
   decks,
-  onCreateDeck,
+  onRenameDeck,
   onRemoveDeckName,
   pronunciations,
   onFetchPronunciations,
   onBack,
 }: Props) {
   const [bulk, setBulk] = useState('');
-  const [deck, setDeck] = useState(DEFAULT_DECK);
   const [reviewRows, setReviewRows] = useState<ReviewRow[] | null>(null);
   const [query, setQuery] = useState('');
-  const [filterDeck, setFilterDeck] = useState('');
   const [notice, setNotice] = useState('');
   const [loadingPron, setLoadingPron] = useState(false);
-  const [newDeckName, setNewDeckName] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [renameInput, setRenameInput] = useState(deckName);
   // 체크된 단어 id들. 여러 개를 한 번에 다른 단어장으로 옮기는 데 쓴다.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkTarget, setBulkTarget] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // 이 단어장이 다른 곳(동기화 등)에서 지워지면 목록으로 돌려보낸다.
+  useEffect(() => {
+    if (!decks.includes(deckName)) onBack();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decks, deckName]);
+
   const existing = useMemo(() => new Set(words.map((w) => w.en.toLowerCase())), [words]);
 
-  // <input list="..."> (datalist)는 모바일 브라우저에서 드롭다운이 안 뜨는 경우가 많아
-  // <select>를 쓴다. 아직 단어장이 하나도 없는 신규 사용자도 바로 등록할 수 있도록
-  // DEFAULT_DECK("기본")은 목록에 없어도 항상 선택지에 넣는다.
-  const deckOptions = useMemo(
-    () => (decks.includes(DEFAULT_DECK) ? decks : [DEFAULT_DECK, ...decks]),
-    [decks],
-  );
-
-  // 검수 화면을 열기 전, 붙여넣은 텍스트에서 몇 줄이나 인식되는지 버튼에 미리 보여준다.
   const quickCount = useMemo(() => parseBulk(bulk), [bulk]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return words
-      .filter((w) => (filterDeck ? w.deck === filterDeck : true))
+      .filter((w) => w.deck === deckName)
       .filter((w) =>
         q ? w.en.toLowerCase().includes(q) || w.ko.some((m) => m.includes(query.trim())) : true,
       )
       .slice()
       .reverse(); // 최근에 넣은 단어가 위로
-  }, [words, query, filterDeck]);
+  }, [words, deckName, query]);
 
   const allVisibleSelected = visible.length > 0 && visible.every((w) => selected.has(w.id));
 
-  // 지금 보이는 목록 중 아직 발음을 안 받아온 단어 수.
   const pronMissing = useMemo(
     () => missingFromCache(visible.map((w) => w.en), pronunciations).length,
     [visible, pronunciations],
   );
 
-  // 화면을 열거나 검색·필터가 바뀔 때마다 조용히 채운다 — 서버 공유 캐시에 이미
-  // 있는 단어라면 버튼을 안 눌러도 바로 보인다. 정말 새 단어만 버튼으로 남는다.
-  // 검색창에 한 글자씩 칠 때마다 visible이 바뀌므로, 잠깐 멈췄을 때만 부른다.
   useEffect(() => {
     const t = window.setTimeout(() => void onFetchPronunciations(visible), 400);
     return () => window.clearTimeout(t);
@@ -100,10 +98,6 @@ export default function WordManager({
     }
   }
 
-  /**
-   * 붙여넣은 텍스트를 검수 테이블로 옮긴다. 이 시점부터 텍스트박스와는 분리된
-   * 독립 상태가 되므로, 표에서 글자를 고쳐도 원본 붙여넣기 내용에는 영향이 없다.
-   */
   function openReview() {
     const parsed = parseBulk(bulk);
     const rows: ReviewRow[] = [
@@ -131,10 +125,7 @@ export default function WordManager({
 
   function commitReview(selectedRows: { en: string; ko: string }[]) {
     if (selectedRows.length === 0) return;
-    const target = deck.trim() || DEFAULT_DECK;
 
-    // 검수 표를 여는 사이 단어 관리 표에서 같은 단어가 등록됐을 수 있고,
-    // 검수 표 안에서 두 줄을 같은 철자로 고쳤을 수도 있다. 등록 직전에 한 번 더 막는다.
     const seen = new Set(existing);
     const added: Word[] = [];
     let blocked = 0;
@@ -145,7 +136,7 @@ export default function WordManager({
         continue;
       }
       seen.add(key);
-      added.push(makeWord(r.en, [r.ko], target));
+      added.push(makeWord(r.en, [r.ko], deckName));
     }
 
     setWords((prev) => [...prev, ...added]);
@@ -160,7 +151,7 @@ export default function WordManager({
     const reader = new FileReader();
     reader.onload = () => setBulk(String(reader.result ?? ''));
     reader.readAsText(file, 'utf-8');
-    e.target.value = ''; // 같은 파일을 다시 고를 수 있게 초기화
+    e.target.value = '';
   }
 
   function update(id: string, patch: Partial<Word>) {
@@ -169,8 +160,6 @@ export default function WordManager({
     );
   }
 
-  // 실제로 지우지 않고 deletedAt만 찍는다. 다른 기기가 아직 이 단어를 동기화하지
-  // 못한 상태에서 push하면, 진짜 삭제는 그 기기가 다음에 pull할 때 되살려 버린다.
   function remove(id: string) {
     const now = Date.now();
     setWords((prev) =>
@@ -178,29 +167,32 @@ export default function WordManager({
     );
   }
 
-  function removeDeck(name: string) {
-    const n = words.filter((w) => w.deck === name).length;
-    if (n > 0 && !confirm(`단어장 "${name}"의 단어 ${n}개를 모두 삭제합니다. 계속할까요?`)) return;
+  function handleDeleteDeck() {
+    const n = words.filter((w) => w.deck === deckName).length;
+    if (n > 0 && !confirm(`단어장 "${deckName}"의 단어 ${n}개를 모두 삭제합니다. 계속할까요?`)) return;
     if (n > 0) {
       const now = Date.now();
       setWords((prev) =>
-        prev.map((w) => (w.deck === name ? { ...w, deletedAt: now, updatedAt: now } : w)),
+        prev.map((w) => (w.deck === deckName ? { ...w, deletedAt: now, updatedAt: now } : w)),
       );
     }
-    onRemoveDeckName(name);
-    if (filterDeck === name) setFilterDeck('');
+    onRemoveDeckName(deckName);
+    onBack();
   }
 
-  function createDeck() {
-    const name = newDeckName.trim();
-    if (!name) return;
-    if (decks.includes(name)) {
-      setNotice(`이미 있는 단어장입니다: ${name}`);
+  function startRename() {
+    setRenameInput(deckName);
+    setNotice('');
+    setRenaming(true);
+  }
+
+  function submitRename() {
+    const res = onRenameDeck(deckName, renameInput);
+    if (!res.ok) {
+      setNotice(res.error ?? '이름을 바꾸지 못했습니다.');
       return;
     }
-    onCreateDeck(name);
-    setNewDeckName('');
-    setNotice(`단어장 "${name}" 생성됨 (아직 빈 단어장)`);
+    setRenaming(false);
   }
 
   function toggleSelected(id: string) {
@@ -241,32 +233,35 @@ export default function WordManager({
     <div className="screen">
       <div className="topbar">
         <button className="btn ghost" onClick={onBack}>
-          ← 홈
+          ← 단어장
         </button>
-        <h2>단어장 관리</h2>
+        {renaming ? (
+          <div className="row deck-rename-row">
+            <input
+              value={renameInput}
+              onChange={(e) => setRenameInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submitRename()}
+              autoFocus
+            />
+            <button className="btn primary sm" onClick={submitRename}>
+              저장
+            </button>
+            <button className="btn ghost sm" onClick={() => setRenaming(false)}>
+              취소
+            </button>
+          </div>
+        ) : (
+          <h2 className="deck-detail-title" onClick={startRename} title="눌러서 이름 바꾸기">
+            {deckName}
+          </h2>
+        )}
         <div className="topbar-right">
-          <button
-            className="btn ghost sm"
-            onClick={() =>
-              download(
-                `voca-backup-${new Date().toLocaleDateString('sv-SE')}.voca.json`,
-                exportWordsJSON(words),
-                'application/json',
-              )
-            }
-          >
-            JSON 백업
-          </button>
-          <button
-            className="btn ghost sm"
-            onClick={() => download('voca-words.csv', exportCSV(words), 'text/csv')}
-          >
-            CSV 내보내기
+          <button className="btn danger sm" onClick={handleDeleteDeck}>
+            단어장 삭제
           </button>
         </div>
       </div>
 
-      {/* 어느 카드에서 비롯된 알림이든(등록·생성·이동 등) 항상 같은 자리에 보여준다. */}
       {notice && (
         <p className="notice-bar" role="status">
           {notice}
@@ -282,16 +277,6 @@ export default function WordManager({
         </p>
 
         <div className="row">
-          <label className="field">
-            <span>단어장</span>
-            <select value={deck} onChange={(e) => setDeck(e.target.value)}>
-              {deckOptions.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
           {!reviewRows && (
             <button className="btn ghost" onClick={() => fileRef.current?.click()}>
               파일 불러오기
@@ -345,9 +330,10 @@ export default function WordManager({
         </p>
 
         <AddWordForm
-          decks={deckOptions}
-          deck={deck}
-          onDeckChange={setDeck}
+          decks={decks}
+          deck={deckName}
+          onDeckChange={() => {}}
+          hideDeckPicker
           existing={existing}
           onAdd={(word) => setWords((prev) => [...prev, word])}
           onNotice={setNotice}
@@ -355,23 +341,8 @@ export default function WordManager({
       </section>
 
       <section className="card">
-        <h3>단어장 생성</h3>
-        <p className="muted">단어를 등록하지 않고 빈 단어장만 미리 만들어 둘 수 있다.</p>
-        <div className="row">
-          <input
-            value={newDeckName}
-            onChange={(e) => setNewDeckName(e.target.value)}
-            placeholder="예: 토플 초록책 Day 3"
-          />
-          <button className="btn ghost" disabled={!newDeckName.trim()} onClick={createDeck}>
-            단어장 생성
-          </button>
-        </div>
-      </section>
-
-      <section className="card">
         <div className="row between">
-          <h3>등록된 단어 {words.length}개</h3>
+          <h3>등록된 단어 {visible.length}개</h3>
           <div className="row wrap">
             <input
               className="search"
@@ -379,14 +350,6 @@ export default function WordManager({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="검색 (영단어 / 뜻)"
             />
-            <select value={filterDeck} onChange={(e) => setFilterDeck(e.target.value)}>
-              <option value="">전체 단어장</option>
-              {decks.map((d) => (
-                <option key={d} value={d}>
-                  {d} ({words.filter((w) => w.deck === d).length})
-                </option>
-              ))}
-            </select>
             {pronMissing > 0 && (
               <button
                 className="btn ghost sm"
@@ -397,16 +360,11 @@ export default function WordManager({
                 {loadingPron ? '확인 중…' : `새 단어 발음 확인 (${pronMissing})`}
               </button>
             )}
-            {filterDeck && (
-              <button className="btn danger sm" onClick={() => removeDeck(filterDeck)}>
-                이 단어장 삭제
-              </button>
-            )}
           </div>
         </div>
 
         {visible.length === 0 ? (
-          <p className="muted">표시할 단어가 없습니다.</p>
+          <p className="muted">아직 등록된 단어가 없습니다.</p>
         ) : (
           <table className="word-table">
             <thead>
@@ -495,12 +453,14 @@ export default function WordManager({
             <b>{selected.size}개</b> 선택됨
           </span>
           <select value={bulkTarget} onChange={(e) => setBulkTarget(e.target.value)}>
-            <option value="">단어장 선택</option>
-            {decks.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
+            <option value="">다른 단어장으로 이동</option>
+            {decks
+              .filter((d) => d !== deckName)
+              .map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
           </select>
           <button className="btn primary sm" disabled={!bulkTarget} onClick={bulkMove}>
             이동

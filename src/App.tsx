@@ -18,7 +18,8 @@ import LandingScreen from './components/LandingScreen';
 import MergeDialog from './components/MergeDialog';
 import ProfileScreen from './components/ProfileScreen';
 import WordsHub from './components/WordsHub';
-import WordManager from './components/WordManager';
+import DeckListScreen from './components/DeckListScreen';
+import DeckDetailScreen from './components/DeckDetailScreen';
 import StudyList from './components/StudyList';
 import RoomListScreen from './components/group/RoomListScreen';
 import RoomScreen from './components/group/RoomScreen';
@@ -33,6 +34,7 @@ type Screen =
   | { name: 'profile' }
   | { name: 'wordsHub' }
   | { name: 'words' }
+  | { name: 'deckDetail'; deckName: string }
   | { name: 'study' }
   | { name: 'group' }
   | { name: 'room'; roomId: string }
@@ -47,6 +49,7 @@ function tabOf(name: Screen['name']): Tab {
   switch (name) {
     case 'wordsHub':
     case 'words':
+    case 'deckDetail':
     case 'study':
       return 'words';
     case 'quizHub':
@@ -166,15 +169,54 @@ export default function App() {
     setDB((d) => ({ ...d, settings }));
   }, []);
 
-  /** 단어 없이 미리 만들어 두는 빈 단어장. */
-  const createDeck = useCallback((name: string) => {
-    setDB((d) => (d.decks.includes(name) ? d : { ...d, decks: [...d.decks, name] }));
-  }, []);
-
   /** "이 단어장 삭제"에서 함께 부른다 — 단어를 옮겨서 비워진 뒤에도 목록에 남지 않도록. */
   const removeDeckName = useCallback((name: string) => {
     setDB((d) => ({ ...d, decks: d.decks.filter((x) => x !== name) }));
   }, []);
+
+  /** 단어 없이 미리 만들어 두는 빈 단어장. 이름 충돌이면 만들지 않고 에러를 돌려준다
+   *  (DeckListScreen이 "새 단어장N" 제안 이름을 여기로 그대로 넘길 수도 있다). */
+  const createDeck = useCallback(
+    (name: string): { ok: boolean; error?: string } => {
+      const trimmed = name.trim();
+      if (!trimmed) return { ok: false, error: '이름을 입력하세요.' };
+      if (decks.includes(trimmed)) return { ok: false, error: `이미 있는 단어장입니다: ${trimmed}` };
+      setDB((d) => (d.decks.includes(trimmed) ? d : { ...d, decks: [...d.decks, trimmed] }));
+      return { ok: true };
+    },
+    [decks],
+  );
+
+  /** 단어장 이름을 바꾼다 — db.decks 항목과 그 단어장 소속 단어 전체의 deck 필드를 같이 옮긴다. */
+  const renameDeck = useCallback(
+    (oldName: string, newName: string): { ok: boolean; error?: string } => {
+      const trimmed = newName.trim();
+      if (!trimmed) return { ok: false, error: '이름을 입력하세요.' };
+      if (trimmed === oldName) return { ok: true };
+      if (decks.includes(trimmed)) return { ok: false, error: `이미 있는 단어장입니다: ${trimmed}` };
+      const now = Date.now();
+      setDB((d) => ({
+        ...d,
+        decks: d.decks.map((x) => (x === oldName ? trimmed : x)),
+        words: d.words.map((w) => (w.deck === oldName ? { ...w, deck: trimmed, updatedAt: now } : w)),
+      }));
+      return { ok: true };
+    },
+    [decks],
+  );
+
+  /** 지금 보고 있는 단어장이 이름을 바꾼 그 단어장이면, 화면 상태도 새 이름을 따라가게 한다. */
+  const renameDeckAndFollow = useCallback(
+    (oldName: string, newName: string): { ok: boolean; error?: string } => {
+      const res = renameDeck(oldName, newName);
+      if (res.ok) {
+        const trimmed = newName.trim();
+        setScreen((s) => (s.name === 'deckDetail' && s.deckName === oldName ? { name: 'deckDetail', deckName: trimmed } : s));
+      }
+      return res;
+    },
+    [renameDeck],
+  );
 
   /**
    * 아직 캐시에 없는 단어의 발음을 받아 로컬 캐시에 넣는다.
@@ -288,6 +330,8 @@ export default function App() {
   }, []);
 
   const goWordsHub = useCallback(() => setScreen({ name: 'wordsHub' }), []);
+  const goWords = useCallback(() => setScreen({ name: 'words' }), []);
+  const goDeckDetail = useCallback((deckName: string) => setScreen({ name: 'deckDetail', deckName }), []);
   const goProfile = useCallback(() => setScreen({ name: 'profile' }), []);
   const goQuizHub = useCallback(() => setScreen({ name: 'quizHub' }), []);
   const goSetup = useCallback(() => setScreen({ name: 'setup' }), []);
@@ -350,15 +394,26 @@ export default function App() {
         );
       case 'words':
         return (
-          <WordManager
+          <DeckListScreen
+            words={words}
+            decks={decks}
+            onCreateDeck={createDeck}
+            onSelectDeck={goDeckDetail}
+            onBack={goWordsHub}
+          />
+        );
+      case 'deckDetail':
+        return (
+          <DeckDetailScreen
+            deckName={screen.deckName}
             words={words}
             setWords={setWords}
             decks={decks}
-            onCreateDeck={createDeck}
+            onRenameDeck={renameDeckAndFollow}
             onRemoveDeckName={removeDeckName}
             pronunciations={db.pronunciations}
             onFetchPronunciations={cachePronunciations}
-            onBack={goWordsHub}
+            onBack={goWords}
           />
         );
       case 'group':
@@ -443,12 +498,15 @@ export default function App() {
     claim,
     setWords,
     createDeck,
+    renameDeckAndFollow,
     removeDeckName,
     setSettings,
     startQuiz,
     finishQuiz,
     cachePronunciations,
     goWordsHub,
+    goWords,
+    goDeckDetail,
     goProfile,
     goQuizHub,
     goSetup,
