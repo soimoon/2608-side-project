@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { type InvitableFriend, inviteFriend, listInvitableFriends } from '../../lib/friendsApi';
 import Icon from '../Icon';
 
@@ -12,9 +12,10 @@ interface Props {
 /**
  * 방 로비의 "친구 초대" 목록. list_invitable_friends RPC가 이미 네 조건(개인 퀴즈 중
  * 아님·접속 중·다른 방 없음·이 방 차단 안 함)을 전부 걸러 주므로, 여기 뜨는 사람은
- * 그대로 초대해도 되는 사람이다. 목록은 모달을 여는 순간 한 번만 불러온다 — 상태가
- * 계속 실시간으로 바뀔 필요는 없고(초대 누를 때 서버가 다시 검증한다), 열 때마다
- * 새로고침 버튼으로 다시 불러올 수 있으면 충분하다.
+ * 그대로 초대해도 되는 사람이다. 이 목록엔 postgres_changes 구독을 걸 테이블이 없어
+ * (친구의 접속 상태·다른 방 참여 여부가 실시간으로 바뀌는 걸 감지할 단일 이벤트 소스가
+ * 없다) 모달이 열려 있는 동안 5초 폴링으로 계속 다시 불러온다 — 안 그러면 모달을 켠
+ * 채로는 방금 접속한 친구가 안 보이고, 껐다 켜야만 반영되는 문제가 있었다.
  */
 export default function InviteFriendsModal({ roomId, onClose, onInvited }: Props) {
   const [friends, setFriends] = useState<InvitableFriend[]>([]);
@@ -22,17 +23,23 @@ export default function InviteFriendsModal({ roomId, onClose, onInvited }: Props
   const [invitedIds, setInvitedIds] = useState<string[]>([]);
   const [error, setError] = useState('');
 
-  async function load() {
-    setLoading(true);
-    const list = await listInvitableFriends(roomId);
-    setFriends(list);
-    setLoading(false);
-  }
+  const load = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      const list = await listInvitableFriends(roomId);
+      setFriends(list);
+      setLoading(false);
+    },
+    [roomId],
+  );
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId]);
+    // 백그라운드 갱신은 loading을 건드리지 않는다 — 매번 "불러오는 중…"으로 목록이
+    // 사라졌다 나타나면 오히려 더 거슬린다.
+    const interval = window.setInterval(() => void load(true), 5_000);
+    return () => window.clearInterval(interval);
+  }, [load]);
 
   async function invite(friend: InvitableFriend) {
     setError('');
@@ -84,7 +91,7 @@ export default function InviteFriendsModal({ roomId, onClose, onInvited }: Props
         )}
 
         <div className="modal-actions">
-          <button className="btn ghost sm" onClick={load} disabled={loading}>
+          <button className="btn ghost sm" onClick={() => load()} disabled={loading}>
             새로고침
           </button>
           <button className="btn primary" onClick={onClose}>
