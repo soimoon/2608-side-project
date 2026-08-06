@@ -30,15 +30,14 @@ export function GoogleIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-/** "말싹" 워드마크 옆에 붙는 새싹 심볼. 앱 아이콘·파비콘과 같은 모양이라
- * 랜딩 화면과 브라우저 탭·홈 화면 아이콘이 한눈에 같은 걸로 읽힌다. */
-export function SproutMark({ size = 72, color = '#3ddc97' }: { size?: number; color?: string }) {
+/** "말싹" 워드마크 옆에 붙는 새싹 심볼. 앱 아이콘·파비콘(public/icons)과 정확히
+ * 같은 모양·비율이라 랜딩 화면과 브라우저 탭·홈 화면 아이콘이 한눈에 같은 걸로 읽힌다. */
+export function SproutMark({ size = 72, color = '#A0D468' }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <path d="M64 108 C64 96 64 86 64 78" stroke={color} strokeWidth="8" strokeLinecap="round" fill="none" />
-      <path d="M64,82 C44,82 24,68 30,36 C50,42 64,56 64,82 Z" fill={color} />
-      <path d="M64,82 C84,82 104,68 98,36 C78,42 64,56 64,82 Z" fill={color} />
-      <ellipse cx="64" cy="109" rx="19" ry="5.5" fill="#ffffff" opacity="0.85" />
+      <path d="M64 96 C64 90 64 83 64 76" stroke={color} strokeWidth="7" strokeLinecap="round" fill="none" />
+      <path d="M64,82 C48,82 32,72 36,50 C52,55 63,64 64,82 Z" fill={color} />
+      <path d="M64,82 C80,82 96,72 92,50 C76,55 65,64 64,82 Z" fill={color} />
     </svg>
   );
 }

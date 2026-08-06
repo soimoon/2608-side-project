@@ -67,7 +67,8 @@ export default function LandingScreen({ sync }: Props) {
           </button>
           <p className="muted landing-hint">
             게스트는 이 기기에만 데이터가 저장돼요. 브라우저 데이터를 지우면 단어장을 잃을 수
-            있습니다 — 나중에 설정에서 언제든 계정을 연결할 수 있어요.
+            있습니다
+            <br />— 나중에 설정에서 언제든 계정을 연결할 수 있어요.
           </p>
         </div>
 

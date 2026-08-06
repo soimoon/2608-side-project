@@ -438,18 +438,26 @@ input[type='radio'] {
   padding: 6px 10px;
 }
 
+/* "말싹" 워드마크 전용 서체 — 눈누(noonnu.cc) 등재 상업용 무료 폰트. */
+@font-face {
+  font-family: 'Cafe24Ssurround';
+  src: url('https://cdn.jsdelivr.net/gh/fonts-archive/Cafe24Ssurround/Cafe24Ssurround.woff2')
+    format('woff2');
+  font-display: swap;
+}
+
 /* ---------- 랜딩 화면 ----------
-   앱 아이콘·파비콘과 같은 파랑을 써서 첫 화면부터 "말싹"이라는 브랜드가
-   바로 읽히게 한다. 로그인 전이라 아직 테마 선택과 무관한 화면이므로,
-   테마 변수(var(--bg) 등)에 안 기대고 고정된 그라디언트를 쓴다. */
+   앱 아이콘·파비콘과 같은 파스텔 파랑 배경 + 연두 새싹을 써서 첫 화면부터
+   같은 브랜드로 읽히게 한다. 로그인 전이라 아직 테마 선택과 무관한 화면이므로,
+   테마 변수(var(--bg) 등)에 안 기대고 고정된 색(기본 파랑 테마 기준)을 쓴다. */
 .landing {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
   text-align: center;
-  background: linear-gradient(160deg, #4a8ae0 0%, #2f6fd0 45%, #1d4fa0 100%);
-  color: #fff;
+  background: #d1dff5;
+  color: #171a22;
 }
 .landing-body {
   width: 100%;
@@ -461,14 +469,14 @@ input[type='radio'] {
 }
 .landing-title {
   margin: 14px 0 2px;
+  font-family: 'Cafe24Ssurround', 'SUIT Variable', sans-serif;
   font-size: 2.75rem;
-  font-weight: 800;
   letter-spacing: -0.02em;
-  color: #fff;
+  color: #2f6fd0;
 }
 .landing-tagline {
   margin: 0;
-  color: rgba(255, 255, 255, 0.85);
+  color: #4a5568;
   font-size: 0.95rem;
 }
 .landing-actions {
@@ -479,23 +487,16 @@ input[type='radio'] {
   width: 100%;
 }
 .landing-actions .btn.ghost {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.4);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.5);
 }
 .landing-actions .btn.oauth {
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 2px 10px rgba(23, 35, 61, 0.12);
 }
 .landing-hint {
   font-size: 0.78rem;
   line-height: 1.5;
   margin: 0;
-  color: rgba(255, 255, 255, 0.75);
-}
-.landing .notice-bar {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #171a22;
+  color: #5b6780;
 }
 .sync-dot {
   width: 8px;
