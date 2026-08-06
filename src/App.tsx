@@ -46,6 +46,17 @@ type Screen =
   | { name: 'quiz'; words: Word[]; settings: QuizSettings }
   | { name: 'result'; session: SessionResult };
 
+// 브라우저 주소창 색(<meta name="theme-color">)에 쓸 값 — styles.css의 테마별 --accent와 동일하게.
+const THEME_ACCENTS: Record<Theme, string> = {
+  blue: '#2f6fd0',
+  pink: '#d6336c',
+  cream: '#b8875a',
+  mint: '#14b892',
+  lavender: '#8462c7',
+  'bw-light': '#1a1a1a',
+  'bw-dark': '#f0f0ee',
+};
+
 function tabOf(name: Screen['name']): Tab {
   switch (name) {
     case 'wordsHub':
@@ -102,6 +113,20 @@ export default function App() {
   // 로컬 db.theme을 정본으로 쓰고, 로그인 상태면 바뀔 때마다 계정에도 올린다.
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', db.theme);
+  }, [db.theme]);
+
+  // 탭 아이콘(파비콘)도 테마 배경색에 맞춘 버전으로 바꾼다. public/icons/{theme}-{size}.png.
+  useEffect(() => {
+    const base = import.meta.env.BASE_URL;
+    const set = (id: string, href: string) => {
+      const el = document.getElementById(id) as HTMLLinkElement | null;
+      if (el) el.href = `${base}icons/${href}`;
+    };
+    set('favicon-32', `${db.theme}-32.png`);
+    set('favicon-512', `${db.theme}-512.png`);
+    set('apple-touch-icon', `${db.theme}-180.png`);
+    const meta = document.getElementById('theme-color-meta') as HTMLMetaElement | null;
+    if (meta) meta.content = THEME_ACCENTS[db.theme];
   }, [db.theme]);
 
   const setTheme = useCallback(
