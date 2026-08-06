@@ -48,7 +48,17 @@ export function useTerms(userId: string | undefined): UseTermsResult {
       setLoading(false);
       return;
     }
-    if (readCache(userId) === null) setLoading(true);
+    // userId가 마운트 시점(캐시를 읽어 초기 state를 채우는 useState 이니셜라이저)이
+    // 아니라 나중에(세션 복원 후) 채워지는 경우가 실제로는 항상이라, 캐시를 여기서도
+    // 다시 확인해 즉시 반영한다 — 안 그러면 loading=false・agreed=false(아직 서버
+    // 확인 전의 초기값)인 순간이 생겨 이미 동의한 계정에서도 TermsGate가 잠깐 보인다.
+    const cached = readCache(userId);
+    if (cached === null) {
+      setLoading(true);
+    } else {
+      setAgreed(cached);
+      setLoading(false);
+    }
     void fetchTermsAgreed(userId).then((a) => {
       setAgreed(a);
       setLoading(false);

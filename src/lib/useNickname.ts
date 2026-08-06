@@ -54,9 +54,18 @@ export function useNickname(userId: string | undefined): UseNicknameResult {
       setLoading(false);
       return;
     }
-    // 캐시로 이미 채워 둔 화면이면 조용히 백그라운드에서만 확인한다 — 다시 로딩
-    // 상태로 되돌리면 화면이 깜빡이므로 loading은 캐시가 없을 때만 true로 둔다.
-    if (!readCache(userId)) setLoading(true);
+    // userId가 마운트 시점의 useState 이니셜라이저가 아니라 나중에(세션 복원 후)
+    // 채워지는 경우가 실제로는 항상이라, 캐시를 여기서도 다시 확인해 즉시 반영한다 —
+    // 안 그러면 loading=false・nicknameSet=false(아직 서버 확인 전의 초기값)인 순간이
+    // 생겨 이미 닉네임을 정한 계정에서도 NicknameGateModal이 잠깐 보인다.
+    const cached = readCache(userId);
+    if (cached === null) {
+      setLoading(true);
+    } else {
+      setDisplayName(cached.displayName);
+      setNicknameSet(cached.nicknameSet);
+      setLoading(false);
+    }
     void fetchNicknameStatus(userId).then((s) => {
       setDisplayName(s.displayName);
       setNicknameSet(s.nicknameSet);
