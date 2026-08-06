@@ -47,8 +47,8 @@ export default function LandingScreen({ sync }: Props) {
   return (
     <div className="screen landing">
       <div className="landing-body">
-        <h1 className="landing-title">보카 퀴즈</h1>
-        <p className="muted">한글 뜻을 보고 영단어를 직접 타이핑하며 외우는 퀴즈</p>
+        <h1 className="landing-title">말싹</h1>
+        <p className="muted">영단어가 자라는 퀴즈</p>
 
         <div className="landing-actions">
           <button className="btn oauth google lg" disabled={googleLoading} onClick={startGoogle}>
