@@ -459,6 +459,11 @@ begin
         where p.room_id = r.id and p.last_seen_at > now() - interval '60 seconds'
       );
 
+  -- 아무도 응답하지 않은 채 잊힌 초대(game_invites, 이 파일 아래쪽 "친구" 절에 정의).
+  -- 방이 지워질 땐 cascade로 같이 사라지지만, 오래 살아 있는 방에는 무응답 초대가
+  -- 계속 쌓일 수 있어 여기서 같이 치운다. 클라이언트도 90초 지난 초대는 무시한다.
+  delete from game_invites where created_at < now() - interval '5 minutes';
+
   -- 전원이 창을 닫아 finish_game이 안 불린 방을 복구(다음 단계에서 status='playing'이
   -- 실제로 쓰이기 시작하면 의미가 생긴다 — 지금 미리 둬서 나중에 손댈 곳이 없게 한다).
   update game_rooms set status = 'lobby'
@@ -853,6 +858,380 @@ grant execute on function set_source(uuid, text, text, jsonb) to authenticated;
 grant execute on function start_game(uuid) to authenticated;
 grant execute on function submit_answer(uuid, int, text, text) to authenticated;
 grant execute on function finish_game(uuid) to authenticated;
+
+-- ============================================================================
+-- 친구 (검색·요청·접속 상태·단체게임 초대)
+-- ============================================================================
+-- 이미 위 스키마로 프로젝트를 만들어 둔 상태라면, 이 구분선 아래만 통째로 복사해
+-- SQL Editor에서 실행하면 된다 (위쪽 create policy 문들은 재실행 시 중복 오류가 난다).
+--
+-- 설계 원칙: profiles의 select 정책(profiles_select_own)은 **건드리지 않는다.** 남의
+-- 닉네임·접속 상태는 전부 아래 security definer 함수가 필요한 필드만 골라 돌려준다
+-- (list_rooms가 이미 쓰는 방식). 그래서 친구 기능 때문에 프로필이 통째로 공개되는
+-- 일이 없다.
+
+-- ---------- 접속 상태 (profiles에 컬럼 2개) ----------
+-- last_seen_at: 앱이 열려 있는 동안 25초마다 갱신(단체게임 방 하트비트와 같은 주기).
+--   신선도 창도 room_players와 같은 60초를 쓴다.
+-- presence_status: 'quiz'면 개인 퀴즈를 푸는 중 — 초대해서 방해하면 안 되는 상태다.
+--   단체게임 진행 중인지는 이 값이 아니라 room_players 신선도로 따로 판정한다.
+alter table profiles add column if not exists last_seen_at timestamptz;
+alter table profiles add column if not exists presence_status text not null default 'idle';
+alter table profiles drop constraint if exists profiles_presence_status_valid;
+alter table profiles add constraint profiles_presence_status_valid
+  check (presence_status in ('idle', 'quiz'));
+
+-- ---------- friends / friend_requests ----------
+-- 수락하면 friends에 (A,B)와 (B,A) 두 행이 생긴다. 조회할 때마다 or 조건으로 양방향을
+-- 뒤지는 것보다 단순하고, "내 친구 목록"이 그냥 user_id = auth.uid() 한 줄이 된다.
+create table if not exists friend_requests (
+  from_id uuid not null references auth.users on delete cascade,
+  to_id uuid not null references auth.users on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (from_id, to_id),
+  check (from_id <> to_id)
+);
+
+create index if not exists friend_requests_to on friend_requests (to_id, created_at desc);
+
+create table if not exists friends (
+  user_id uuid not null references auth.users on delete cascade,
+  friend_id uuid not null references auth.users on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, friend_id),
+  check (user_id <> friend_id)
+);
+
+alter table friend_requests enable row level security;
+alter table friends enable row level security;
+-- 두 테이블 모두 정책을 두지 않는다(room_kicks·room_contributions와 같은 처리) —
+-- 아래 RPC로만 읽고 쓴다. 남의 닉네임이 붙어 나가야 하는 조회라 클라이언트가 직접
+-- select하게 두면 결국 profiles를 열어야 하는데, 그걸 피하는 게 이 설계의 핵심이다.
+
+-- ---------- room_invite_mutes (방 단위 초대 차단) ----------
+-- "○○님을 차단"이 아니라 "이 방의 초대는 그만 받겠다". 사람이 아니라 방을 키로 잡아서
+-- (1) 같은 사람이 나중에 다른 방에서 부르면 초대가 정상적으로 가고, (2) sweep_rooms가
+-- 죽은 방을 지우는 순간 cascade로 차단 기록도 같이 사라져 별도 만료 처리나 "차단 해제"
+-- UI가 아예 필요 없다.
+create table if not exists room_invite_mutes (
+  muter_id uuid not null references auth.users on delete cascade,
+  room_id uuid not null references game_rooms on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (muter_id, room_id)
+);
+
+alter table room_invite_mutes enable row level security;
+-- 정책 없음 — respond_invite가 쓰고 list_invitable_friends/invite_friend가 읽는다.
+
+-- ---------- game_invites ----------
+-- 초대 전달을 Broadcast가 아니라 테이블로 하는 이유: 차단(room_invite_mutes) 검사를
+-- 서버가 강제할 수 있고(Broadcast는 클라이언트가 아무에게나 쏠 수 있다), 앱의 기존
+-- 패턴("쓰기는 RPC, 읽기는 postgres_changes")과 같기 때문이다.
+--
+-- from_name/room_title은 room_players.display_name과 같은 이유로 스냅샷이다 —
+-- profiles를 조인해서 볼 수가 없고, 스냅샷이면 수신자가 Realtime 페이로드만으로
+-- 모달을 바로 띄울 수 있어 추가 조회가 없다.
+create table if not exists game_invites (
+  id bigserial primary key,
+  room_id uuid not null references game_rooms on delete cascade,
+  from_id uuid not null references auth.users on delete cascade,
+  to_id uuid not null references auth.users on delete cascade,
+  from_name text not null,
+  room_title text not null,
+  created_at timestamptz not null default now(),
+  -- 같은 사람이 같은 방으로 다시 부르면 새 행이 아니라 created_at 갱신(= UPDATE 이벤트).
+  unique (room_id, from_id, to_id)
+);
+
+create index if not exists game_invites_to on game_invites (to_id, created_at desc);
+
+alter table game_invites enable row level security;
+
+-- 이 절에서 유일하게 select 정책이 필요한 테이블이다 — postgres_changes는 RLS를
+-- 통과해야 이벤트를 배달하기 때문. 그래도 범위는 "내가 받은/보낸 초대"뿐이다.
+drop policy if exists "game_invites_select_mine" on game_invites;
+create policy "game_invites_select_mine" on game_invites
+  for select using (to_id = auth.uid() or from_id = auth.uid());
+-- insert/update/delete 정책 없음 — invite_friend / respond_invite RPC로만.
+
+-- 친구 판정에서 "이 사람이 지금 아무 방에나 들어가 있나"를 자주 물어보므로 user_id로
+-- 시작하는 인덱스가 필요하다(기존 room_players_fresh는 room_id로 시작한다).
+create index if not exists room_players_user on room_players (user_id, last_seen_at desc);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'game_invites'
+  ) then
+    alter publication supabase_realtime add table game_invites;
+  end if;
+end $$;
+
+-- ---------- 친구: RPC ----------
+
+-- 앱이 열려 있는 동안 주기적으로 부른다. 시각은 클라이언트가 보내지 않고 서버가 찍는다
+-- (기기 시계가 틀어져 있어도 접속 판정이 흔들리지 않게).
+create or replace function touch_presence(p_status text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_status not in ('idle', 'quiz') then raise exception 'BAD_STATUS'; end if;
+  update profiles set last_seen_at = now(), presence_status = p_status where id = auth.uid();
+end;
+$$;
+
+-- 닉네임 앞글자로 사람을 찾는다. 2글자 이상, 최대 20명.
+-- p_query를 닉네임과 같은 문자셋(영문·숫자·한글)으로 제한해서 '%'나 '_' 같은 LIKE
+-- 와일드카드가 들어오는 경로 자체를 없앤다 — 그러지 않으면 '%' 한 글자로 전체 사용자를
+-- 훑을 수 있다.
+-- 익명(게스트) 계정과 아직 닉네임을 정하지 않은 계정은 결과에서 뺀다.
+create or replace function search_users(p_query text)
+returns table (id uuid, display_name text, relation text)
+language plpgsql stable security definer set search_path = public as $$
+declare q text;
+begin
+  q := btrim(coalesce(p_query, ''));
+  if q !~ '^[A-Za-z0-9가-힣]{2,10}$' then return; end if;
+
+  return query
+    select
+      p.id,
+      p.display_name,
+      case
+        when exists (select 1 from friends f where f.user_id = auth.uid() and f.friend_id = p.id)
+          then 'friend'
+        when exists (select 1 from friend_requests r where r.from_id = auth.uid() and r.to_id = p.id)
+          then 'outgoing'
+        when exists (select 1 from friend_requests r where r.from_id = p.id and r.to_id = auth.uid())
+          then 'incoming'
+        else 'none'
+      end
+    from profiles p
+    join auth.users u on u.id = p.id
+    where p.nickname_set
+      and p.display_name is not null
+      and lower(p.display_name) like lower(q) || '%'
+      and p.id <> auth.uid()
+      and coalesce(u.is_anonymous, false) = false
+    order by lower(p.display_name)
+    limit 20;
+end;
+$$;
+
+-- 친구 요청을 보낸다. 'friend'(바로 성립) 또는 'requested'를 돌려준다.
+-- 상대가 이미 나에게 요청을 보낸 상태면 수락 왕복을 생략하고 그 자리에서 친구가 된다 —
+-- 서로 상대 창을 보며 동시에 요청을 누르는 흔한 상황에서 "요청이 사라진 것처럼 보이는"
+-- 혼란을 없앤다.
+create or replace function send_friend_request(p_to_id uuid) returns text
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_to_id is null or p_to_id = auth.uid() then raise exception 'BAD_TARGET'; end if;
+
+  if (select coalesce(u.is_anonymous, false) from auth.users u where u.id = auth.uid()) then
+    raise exception 'ANONYMOUS';
+  end if;
+
+  if not exists (
+    select 1 from profiles p join auth.users u on u.id = p.id
+    where p.id = p_to_id and p.nickname_set and coalesce(u.is_anonymous, false) = false
+  ) then
+    raise exception 'BAD_TARGET';
+  end if;
+
+  if exists (select 1 from friends where user_id = auth.uid() and friend_id = p_to_id) then
+    raise exception 'ALREADY_FRIENDS';
+  end if;
+
+  if exists (select 1 from friend_requests where from_id = p_to_id and to_id = auth.uid()) then
+    delete from friend_requests
+      where (from_id = p_to_id and to_id = auth.uid())
+         or (from_id = auth.uid() and to_id = p_to_id);
+    insert into friends (user_id, friend_id)
+      values (auth.uid(), p_to_id), (p_to_id, auth.uid())
+      on conflict do nothing;
+    return 'friend';
+  end if;
+
+  insert into friend_requests (from_id, to_id) values (auth.uid(), p_to_id)
+    on conflict do nothing;
+  return 'requested';
+end;
+$$;
+
+create or replace function respond_friend_request(p_from_id uuid, p_accept boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from friend_requests where from_id = p_from_id and to_id = auth.uid()) then
+    raise exception 'NO_REQUEST';
+  end if;
+
+  delete from friend_requests where from_id = p_from_id and to_id = auth.uid();
+
+  if p_accept then
+    insert into friends (user_id, friend_id)
+      values (auth.uid(), p_from_id), (p_from_id, auth.uid())
+      on conflict do nothing;
+  end if;
+end;
+$$;
+
+-- 친구를 끊는 건 항상 양쪽 모두에서다(한쪽만 남은 상태를 만들지 않는다).
+create or replace function remove_friend(p_friend_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from friends
+    where (user_id = auth.uid() and friend_id = p_friend_id)
+       or (user_id = p_friend_id and friend_id = auth.uid());
+end;
+$$;
+
+-- 아래 목록 함수들은 순수 조회라 plpgsql 대신 language sql로 둔다. 표 형태 반환에서
+-- 출력 이름(user_id 등)과 테이블 컬럼이 겹치지만, 본문의 모든 참조를 별칭으로 한정해
+-- 두었으므로 모호성 오류가 나지 않는다.
+create or replace function list_friends()
+returns table (user_id uuid, display_name text, online boolean, in_game boolean)
+language sql stable security definer set search_path = public as $$
+  select
+    f.friend_id,
+    p.display_name,
+    coalesce(p.last_seen_at > now() - interval '60 seconds', false),
+    exists (
+      select 1 from room_players rp
+      where rp.user_id = f.friend_id and rp.last_seen_at > now() - interval '60 seconds'
+    )
+  from friends f
+  join profiles p on p.id = f.friend_id
+  where f.user_id = auth.uid()
+  order by coalesce(p.last_seen_at > now() - interval '60 seconds', false) desc,
+           lower(p.display_name)
+  limit 200;
+$$;
+
+create or replace function list_friend_requests()
+returns table (from_id uuid, display_name text, created_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select r.from_id, p.display_name, r.created_at
+  from friend_requests r
+  join profiles p on p.id = r.from_id
+  where r.to_id = auth.uid()
+  order by r.created_at desc
+  limit 50;
+$$;
+
+-- 지금 이 방으로 불러도 방해가 안 되는 친구만. 네 조건을 전부 만족해야 한다:
+--   ① 개인 퀴즈 중이 아님 (presence_status = 'idle')
+--   ② 접속 중            (last_seen_at이 60초 이내)
+--   ③ 다른 단체게임 중이 아님 (신선한 room_players 행이 없음)
+--   ④ 이 방의 초대를 차단하지 않음 (room_invite_mutes)
+-- ③은 방 id를 따지지 않는다 — 이미 이 방에 들어와 있는 친구도 초대할 이유가 없으므로
+-- 같은 조건 하나가 두 경우를 다 걸러낸다.
+create or replace function list_invitable_friends(p_room_id uuid)
+returns table (user_id uuid, display_name text)
+language sql stable security definer set search_path = public as $$
+  select f.friend_id, p.display_name
+  from friends f
+  join profiles p on p.id = f.friend_id
+  where f.user_id = auth.uid()
+    and coalesce(p.last_seen_at > now() - interval '60 seconds', false)
+    and p.presence_status = 'idle'
+    and not exists (
+      select 1 from room_players rp
+      where rp.user_id = f.friend_id and rp.last_seen_at > now() - interval '60 seconds'
+    )
+    and not exists (
+      select 1 from room_invite_mutes m
+      where m.muter_id = f.friend_id and m.room_id = p_room_id
+    )
+  order by lower(p.display_name)
+  limit 50;
+$$;
+
+-- 초대를 보낸다. 목록에 떴다는 것만 믿지 않고 서버가 조건을 다시 확인한다 — 목록을
+-- 띄운 뒤 상대가 퀴즈를 시작했을 수도 있고, 애초에 클라이언트가 임의의 uuid를 보낼 수도
+-- 있기 때문이다. from_name/room_title도 클라이언트 말이 아니라 서버가 조회해서 채운다.
+create or replace function invite_friend(p_room_id uuid, p_to_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare r game_rooms; my_name text;
+begin
+  select * into r from game_rooms where id = p_room_id;
+  if r is null then raise exception 'ROOM_NOT_FOUND'; end if;
+
+  if not exists (select 1 from room_players where room_id = p_room_id and user_id = auth.uid()) then
+    raise exception 'NOT_MEMBER';
+  end if;
+
+  if not exists (select 1 from friends where user_id = auth.uid() and friend_id = p_to_id) then
+    raise exception 'NOT_FRIEND';
+  end if;
+
+  if (
+    select count(*) from room_players
+    where room_id = p_room_id and last_seen_at > now() - interval '60 seconds'
+  ) >= r.max_players then
+    raise exception 'ROOM_FULL';
+  end if;
+
+  if exists (select 1 from room_invite_mutes where muter_id = p_to_id and room_id = p_room_id) then
+    raise exception 'INVITE_MUTED';
+  end if;
+
+  if not exists (select 1 from list_invitable_friends(p_room_id) x where x.user_id = p_to_id) then
+    raise exception 'TARGET_BUSY';
+  end if;
+
+  select p.display_name into my_name from profiles p where p.id = auth.uid();
+
+  insert into game_invites (room_id, from_id, to_id, from_name, room_title)
+  values (p_room_id, auth.uid(), p_to_id, coalesce(my_name, '친구'), r.title)
+  on conflict (room_id, from_id, to_id) do update set created_at = now();
+end;
+$$;
+
+-- 초대에 답한다. 어느 쪽이든 초대 행은 사라진다(수락했으면 클라이언트가 join_room으로
+-- 실제 입장하므로 여기서 방에 넣지는 않는다 — 정원 검사가 join_room 한 곳에만 있어야
+-- 경쟁 조건이 갈라지지 않는다). 돌려주는 값은 이동할 방 id.
+create or replace function respond_invite(p_invite_id bigint, p_accept boolean, p_mute boolean)
+returns uuid
+language plpgsql security definer set search_path = public as $$
+declare inv game_invites;
+begin
+  select * into inv from game_invites where id = p_invite_id and to_id = auth.uid();
+  if inv is null then raise exception 'NO_INVITE'; end if;
+
+  delete from game_invites where id = p_invite_id;
+
+  if not p_accept and p_mute then
+    insert into room_invite_mutes (muter_id, room_id) values (auth.uid(), inv.room_id)
+      on conflict do nothing;
+    -- 같은 방에서 온 다른 초대도 같이 지운다 — 차단하자마자 그 방의 다른 친구 초대가
+    -- 곧바로 또 뜨면 "차단했는데 왜 또 떠?"가 된다.
+    delete from game_invites where to_id = auth.uid() and room_id = inv.room_id;
+  end if;
+
+  return inv.room_id;
+end;
+$$;
+
+revoke execute on function touch_presence(text) from public;
+revoke execute on function search_users(text) from public;
+revoke execute on function send_friend_request(uuid) from public;
+revoke execute on function respond_friend_request(uuid, boolean) from public;
+revoke execute on function remove_friend(uuid) from public;
+revoke execute on function list_friends() from public;
+revoke execute on function list_friend_requests() from public;
+revoke execute on function list_invitable_friends(uuid) from public;
+revoke execute on function invite_friend(uuid, uuid) from public;
+revoke execute on function respond_invite(bigint, boolean, boolean) from public;
+
+grant execute on function touch_presence(text) to authenticated;
+grant execute on function search_users(text) to authenticated;
+grant execute on function send_friend_request(uuid) to authenticated;
+grant execute on function respond_friend_request(uuid, boolean) to authenticated;
+grant execute on function remove_friend(uuid) to authenticated;
+grant execute on function list_friends() to authenticated;
+grant execute on function list_friend_requests() to authenticated;
+grant execute on function list_invitable_friends(uuid) to authenticated;
+grant execute on function invite_friend(uuid, uuid) to authenticated;
+grant execute on function respond_invite(bigint, boolean, boolean) to authenticated;
 
 -- ---------- 마이그레이션: words.ko  text → text[] ----------
 -- 이미 이 스키마로 프로젝트를 만들어서 words.ko가 text 컬럼인 상태라면, 위 CREATE TABLE은

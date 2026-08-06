@@ -1661,6 +1661,38 @@ input[type='radio'] {
   opacity: 0.7;
 }
 
+/* ---------- 친구 ---------- */
+/* .friends-entry는 <button>이라 기본 버튼 크롬(테두리·배경)을 지우고 .row .nickname-row
+   레이아웃 위에 얹는다 — 프로필의 다른 행과 같은 줄맞춤을 쓰면서도 화면 전체가
+   눌리는 버튼이 되게 하기 위해서다. */
+.friends-entry {
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.friends-entry-label {
+  flex: 1;
+}
+.badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 /* ---------- 반응형 ---------- */
 @media (max-width: 560px) {
   .stat-grid,

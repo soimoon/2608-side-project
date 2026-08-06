@@ -3,6 +3,9 @@ import type { Attempt, ClaimKind, DB, QuizSettings, SessionResult, Theme, Word }
 import { activeWords, dedupeWordsById, loadDB, newId, saveDB } from './lib/storage';
 import { isRealSession, useCloudSync } from './lib/useCloudSync';
 import { useTerms } from './lib/useTerms';
+import { usePresence } from './lib/usePresence';
+import { useFriends } from './lib/useFriends';
+import { useInviteInbox } from './lib/useInviteInbox';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
 import {
   deleteWordsPermanently,
@@ -20,6 +23,8 @@ import LandingScreen from './components/LandingScreen';
 import TermsGate from './components/TermsGate';
 import MergeDialog from './components/MergeDialog';
 import ProfileScreen from './components/ProfileScreen';
+import FriendsScreen from './components/FriendsScreen';
+import InviteModal from './components/InviteModal';
 import WordsHub from './components/WordsHub';
 import DeckListScreen from './components/DeckListScreen';
 import DeckDetailScreen from './components/DeckDetailScreen';
@@ -35,6 +40,7 @@ import ResultScreen from './components/ResultScreen';
 
 type Screen =
   | { name: 'profile' }
+  | { name: 'friends' }
   | { name: 'wordsHub' }
   | { name: 'words'; notice?: string }
   | { name: 'deckDetail'; deckName: string }
@@ -77,6 +83,7 @@ function tabOf(name: Screen['name']): Tab {
     case 'groupResult':
       return 'group';
     case 'profile':
+    case 'friends':
       return 'profile';
   }
 }
@@ -114,6 +121,15 @@ export default function App() {
   // 구글/카카오 등 실계정에만 필요한 약관 동의 상태. 게스트(익명)는 userId를 안 넘겨
   // 훅이 아무 일도 안 하게 한다 — Rules of Hooks 때문에 호출 자체는 항상 한다.
   const terms = useTerms(isRealSession(sync.session) ? sync.session.user.id : undefined);
+
+  // 친구 기능도 약관과 같은 이유로 실계정 전용 — 게스트에게는 userId를 안 넘겨 훅을
+  // 재운다. 개인 퀴즈/단체게임 화면에 있는 동안은 'quiz'를 실어 보내 다른 사람의
+  // "초대 가능 친구" 목록에서 빠진다(list_invitable_friends의 presence_status 조건).
+  const realUserId = isRealSession(sync.session) ? sync.session.user.id : undefined;
+  const presenceStatus = screen.name === 'quiz' || screen.name === 'groupQuiz' ? 'quiz' : 'idle';
+  usePresence(realUserId, presenceStatus);
+  const friends = useFriends(realUserId);
+  const inviteInbox = useInviteInbox(realUserId);
 
   // 테마는 <html data-theme="..."> 로 CSS에 반영한다. 오프라인에서도 즉시 적용되도록
   // 로컬 db.theme을 정본으로 쓰고, 로그인 상태면 바뀔 때마다 계정에도 올린다.
@@ -435,6 +451,7 @@ export default function App() {
   }, []);
 
   const goWordsHub = useCallback(() => setScreen({ name: 'wordsHub' }), []);
+  const goFriends = useCallback(() => setScreen({ name: 'friends' }), []);
   const goWords = useCallback(() => setScreen({ name: 'words' }), []);
   const goDeckDetail = useCallback((deckName: string) => setScreen({ name: 'deckDetail', deckName }), []);
   const goProfile = useCallback(() => setScreen({ name: 'profile' }), []);
@@ -476,8 +493,12 @@ export default function App() {
             dailyClaims={db.dailyClaims}
             onClaim={claim}
             onGoWords={goWordsHub}
+            friendRequestCount={friends.requests.length}
+            onGoFriends={goFriends}
           />
         );
+      case 'friends':
+        return <FriendsScreen friendsState={friends} onBack={goProfile} />;
       case 'wordsHub':
         return (
           <WordsHub
@@ -604,6 +625,7 @@ export default function App() {
     words,
     decks,
     sync,
+    friends,
     setTheme,
     claim,
     setWords,
@@ -617,6 +639,7 @@ export default function App() {
     finishQuiz,
     cachePronunciations,
     goWordsHub,
+    goFriends,
     goWords,
     goDeckDetail,
     goProfile,
@@ -667,6 +690,22 @@ export default function App() {
         <BottomNav active={tabOf(screen.name)} onNavigate={navigate} />
       )}
       <MergeDialog sync={sync} />
+      {/* 퀴즈/단체게임 화면에서는 렌더를 보류한다 — presence_status='quiz'로 서버가
+          이미 초대 목록에서 빼주지만, 초대와 퀴즈 시작이 겹치는 찰나의 레이스에서
+          타이머·입력이 끊기지 않게 하는 안전장치다. 화면을 벗어나면 큐에 남아 있던
+          초대가 그때 뜬다. */}
+      {inviteInbox.pendingInvite && screen.name !== 'quiz' && screen.name !== 'groupQuiz' && (
+        <InviteModal
+          fromName={inviteInbox.pendingInvite.fromName}
+          roomTitle={inviteInbox.pendingInvite.roomTitle}
+          onAccept={() => {
+            void inviteInbox.accept().then((roomId) => {
+              if (roomId) goRoom(roomId);
+            });
+          }}
+          onDecline={(mute) => void inviteInbox.decline(mute)}
+        />
+      )}
     </div>
   );
 }

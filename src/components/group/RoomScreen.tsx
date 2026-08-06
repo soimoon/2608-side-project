@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Word } from '../../types';
 import type { CloudSync } from '../../lib/useCloudSync';
+import { isRealSession } from '../../lib/useCloudSync';
 import { useGroupRoom } from '../../lib/useGroupRoom';
 import { useNickname } from '../../lib/useNickname';
 import { startGame } from '../../lib/groupApi';
@@ -8,6 +9,7 @@ import PlayerList from './PlayerList';
 import ChatPanel from './ChatPanel';
 import NicknameGateModal from './NicknameGateModal';
 import SourcePicker from './SourcePicker';
+import InviteFriendsModal from './InviteFriendsModal';
 
 const SPEED_LABEL: Record<string, string> = { fast: '빠름(8초)', normal: '보통(12초)', relaxed: '여유(16초)' };
 
@@ -34,6 +36,8 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
   const [authError, setAuthError] = useState('');
   const [startError, setStartError] = useState('');
   const [starting, setStarting] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteNotice, setInviteNotice] = useState('');
   // null이면 "아직 안 골랐으면 펼치고, 골랐으면 접는다"는 자동 규칙을 따른다.
   // 사용자가 토글을 직접 누르면 그 뒤로는 이 값이 자동 규칙을 덮어쓴다.
   const [sourcePickerOverride, setSourcePickerOverride] = useState<boolean | null>(null);
@@ -175,12 +179,25 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
           ← 나가기
         </button>
         <h2>{room.title}</h2>
-        <div className="topbar-right" />
+        <div className="topbar-right">
+          {/* 게스트(익명, isRealSession=false) 계정은 친구 개념이 없어 버튼 자체를 숨긴다. */}
+          {isRealSession(session) && (
+            <button className="btn ghost sm" onClick={() => setInviting(true)}>
+              친구 초대
+            </button>
+          )}
+        </div>
       </div>
 
       <p className="muted room-meta">
         {SPEED_LABEL[room.speed]} · {room.roundCount}문제
       </p>
+
+      {inviteNotice && (
+        <p className="notice-bar" role="status">
+          {inviteNotice}
+        </p>
+      )}
 
       <PlayerList
         players={players}
@@ -227,6 +244,17 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
       )}
 
       <ChatPanel messages={messages} me={userId ?? ''} onSend={send} />
+
+      {inviting && (
+        <InviteFriendsModal
+          roomId={roomId}
+          onClose={() => setInviting(false)}
+          onInvited={(message) => {
+            setInviteNotice(message);
+            setInviting(false);
+          }}
+        />
+      )}
     </div>
   );
 }

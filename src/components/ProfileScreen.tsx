@@ -11,6 +11,7 @@ import {
   totalCorrect,
 } from '../lib/attendance';
 import type { CloudSync } from '../lib/useCloudSync';
+import { isRealSession } from '../lib/useCloudSync';
 import { useNickname } from '../lib/useNickname';
 import SettingsModal from './SettingsModal';
 import Icon from './Icon';
@@ -47,6 +48,9 @@ interface Props {
   dailyClaims: string[];
   onClaim: (kind: ClaimKind) => void;
   onGoWords: () => void;
+  /** 받은 친구 요청 수 — 배지로 표시. 게스트 계정이면 App.tsx가 이 자체를 안 넘긴다. */
+  friendRequestCount: number;
+  onGoFriends: () => void;
 }
 
 function todayKey(): string {
@@ -78,6 +82,8 @@ export default function ProfileScreen({
   dailyClaims,
   onClaim,
   onGoWords,
+  friendRequestCount,
+  onGoFriends,
 }: Props) {
   const now = Date.now();
   const today = kstDateKey(now);
@@ -191,6 +197,18 @@ export default function ProfileScreen({
         <p className="notice-bar" role="status">
           {nicknameError}
         </p>
+      )}
+
+      {/* 친구 기능은 실계정 전용 — 게스트(익명, 단체게임용)에겐 진입점 자체를 숨긴다.
+          검색 자체가 서버에서도 익명 계정을 걸러내지만(search_users의 is_anonymous 검사),
+          애초에 눌러도 소용없는 버튼을 보여줄 이유가 없다. */}
+      {isRealSession(sync.session) && (
+        <button className="row nickname-row friends-entry" onClick={onGoFriends}>
+          <span className="muted">친구</span>
+          <Icon name="people" />
+          <span className="friends-entry-label">친구 목록·요청</span>
+          {friendRequestCount > 0 && <span className="badge-count">{friendRequestCount}</span>}
+        </button>
       )}
 
       <header className="hero">
