@@ -6,6 +6,7 @@ import { lookupCache, missingFromCache } from '../lib/pronounce';
 import ImportReview, { type ReviewRow } from './ImportReview';
 import PronounceButton from './PronounceButton';
 import AddWordForm from './AddWordForm';
+import ConfirmModal from './ConfirmModal';
 
 const SAMPLE = `synthesize\t통합하다, 종합하다
 ubiquitous\t어디에나 있는
@@ -19,10 +20,11 @@ interface Props {
   setWords: (updater: (prev: Word[]) => Word[]) => void;
   decks: string[];
   onRenameDeck: (oldName: string, newName: string) => { ok: boolean; error?: string };
-  onRemoveDeckName: (name: string) => void;
+  /** 삭제 확인까지 마친 뒤 부른다. 목록 화면으로 돌려보내고 휴지통 이동 알림을 띄우는
+   *  건 App.tsx 쪽 책임이라, 여기서는 단어 소프트 삭제만 하고 이걸 부르면 끝이다. */
+  onDeleted: (deckName: string) => void;
   pronunciations: Record<string, Pronunciation>;
   onFetchPronunciations: (targets: Word[]) => Promise<void>;
-  /** 단어장 목록으로 돌아간다. 이 단어장을 삭제한 뒤에도 부른다. */
   onBack: () => void;
 }
 
@@ -38,7 +40,7 @@ export default function DeckDetailScreen({
   setWords,
   decks,
   onRenameDeck,
-  onRemoveDeckName,
+  onDeleted,
   pronunciations,
   onFetchPronunciations,
   onBack,
@@ -50,6 +52,7 @@ export default function DeckDetailScreen({
   const [loadingPron, setLoadingPron] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameInput, setRenameInput] = useState(deckName);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   // 체크된 단어 id들. 여러 개를 한 번에 다른 단어장으로 옮기는 데 쓴다.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkTarget, setBulkTarget] = useState('');
@@ -167,17 +170,17 @@ export default function DeckDetailScreen({
     );
   }
 
-  function handleDeleteDeck() {
-    const n = words.filter((w) => w.deck === deckName).length;
-    if (n > 0 && !confirm(`단어장 "${deckName}"의 단어 ${n}개를 모두 삭제합니다. 계속할까요?`)) return;
-    if (n > 0) {
+  const wordCountInDeck = words.filter((w) => w.deck === deckName).length;
+
+  function doDeleteDeck() {
+    if (wordCountInDeck > 0) {
       const now = Date.now();
       setWords((prev) =>
         prev.map((w) => (w.deck === deckName ? { ...w, deletedAt: now, updatedAt: now } : w)),
       );
     }
-    onRemoveDeckName(deckName);
-    onBack();
+    setConfirmingDelete(false);
+    onDeleted(deckName);
   }
 
   function startRename() {
@@ -256,7 +259,7 @@ export default function DeckDetailScreen({
           </h2>
         )}
         <div className="topbar-right">
-          <button className="btn danger sm" onClick={handleDeleteDeck}>
+          <button className="btn danger sm" onClick={() => setConfirmingDelete(true)}>
             단어장 삭제
           </button>
         </div>
@@ -266,6 +269,17 @@ export default function DeckDetailScreen({
         <p className="notice-bar" role="status">
           {notice}
         </p>
+      )}
+
+      {confirmingDelete && (
+        <ConfirmModal
+          message={`"${deckName}" 단어장을 삭제하시겠습니까?${
+            wordCountInDeck > 0 ? ` 단어 ${wordCountInDeck}개도 함께 휴지통으로 이동합니다.` : ''
+          }`}
+          danger
+          onConfirm={doDeleteDeck}
+          onCancel={() => setConfirmingDelete(false)}
+        />
       )}
 
       <section className="card">

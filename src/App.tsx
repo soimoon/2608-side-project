@@ -33,7 +33,7 @@ import ResultScreen from './components/ResultScreen';
 type Screen =
   | { name: 'profile' }
   | { name: 'wordsHub' }
-  | { name: 'words' }
+  | { name: 'words'; notice?: string }
   | { name: 'deckDetail'; deckName: string }
   | { name: 'study' }
   | { name: 'group' }
@@ -169,9 +169,52 @@ export default function App() {
     setDB((d) => ({ ...d, settings }));
   }, []);
 
-  /** "이 단어장 삭제"에서 함께 부른다 — 단어를 옮겨서 비워진 뒤에도 목록에 남지 않도록. */
-  const removeDeckName = useCallback((name: string) => {
-    setDB((d) => ({ ...d, decks: d.decks.filter((x) => x !== name) }));
+  /** 단어장 삭제 시 db.decks에서 빼고 휴지통(deletedDecks)에 담는다. 소속 단어들의
+   *  소프트 삭제(deletedAt)는 호출부(DeckDetailScreen)가 미리 해 둔다. */
+  const trashDeck = useCallback((name: string) => {
+    const now = Date.now();
+    setDB((d) => ({
+      ...d,
+      decks: d.decks.filter((x) => x !== name),
+      deletedDecks: [...d.deletedDecks.filter((x) => x.name !== name), { name, deletedAt: now }],
+    }));
+  }, []);
+
+  /** 삭제 확인까지 마친 뒤 실제로 부르는 조합 — 데이터를 휴지통으로 옮기고, 목록
+   *  화면으로 돌아가며, "휴지통으로 이동했다"는 알림을 그 화면에 실어 보낸다. */
+  const deleteDeckAndGoBack = useCallback(
+    (name: string) => {
+      trashDeck(name);
+      setScreen({ name: 'words', notice: `"${name}" 단어장이 휴지통으로 이동했습니다.` });
+    },
+    [trashDeck],
+  );
+
+  /** 휴지통에서 복원. 그새 같은 이름의 단어장이 다시 생겼으면 막는다. */
+  const restoreDeck = useCallback(
+    (name: string): { ok: boolean; error?: string } => {
+      if (decks.includes(name)) {
+        return { ok: false, error: `"${name}" 이름의 단어장이 이미 있어 복원할 수 없습니다.` };
+      }
+      const now = Date.now();
+      setDB((d) => ({
+        ...d,
+        decks: d.decks.includes(name) ? d.decks : [...d.decks, name],
+        deletedDecks: d.deletedDecks.filter((x) => x.name !== name),
+        words: d.words.map((w) =>
+          w.deck === name && w.deletedAt ? { ...w, deletedAt: undefined, updatedAt: now } : w,
+        ),
+      }));
+      return { ok: true };
+    },
+    [decks],
+  );
+
+  /** 휴지통에서 완전 삭제 — 목록에서만 뺀다. 단어 자체는 이미 소프트 삭제 상태라
+   *  화면 어디에도 안 보이니 사실상 영구히 사라진 것과 같다(다른 기기 동기화
+   *  안전을 위해 words 배열에서 실제로 지우지는 않는다 — Word.deletedAt 주석 참고). */
+  const purgeDeck = useCallback((name: string) => {
+    setDB((d) => ({ ...d, deletedDecks: d.deletedDecks.filter((x) => x.name !== name) }));
   }, []);
 
   /** 단어 없이 미리 만들어 두는 빈 단어장. 이름 충돌이면 만들지 않고 에러를 돌려준다
@@ -397,8 +440,12 @@ export default function App() {
           <DeckListScreen
             words={words}
             decks={decks}
+            deletedDecks={db.deletedDecks}
+            notice={screen.notice}
             onCreateDeck={createDeck}
             onSelectDeck={goDeckDetail}
+            onRestoreDeck={restoreDeck}
+            onPurgeDeck={purgeDeck}
             onBack={goWordsHub}
           />
         );
@@ -410,7 +457,7 @@ export default function App() {
             setWords={setWords}
             decks={decks}
             onRenameDeck={renameDeckAndFollow}
-            onRemoveDeckName={removeDeckName}
+            onDeleted={deleteDeckAndGoBack}
             pronunciations={db.pronunciations}
             onFetchPronunciations={cachePronunciations}
             onBack={goWords}
@@ -499,7 +546,9 @@ export default function App() {
     setWords,
     createDeck,
     renameDeckAndFollow,
-    removeDeckName,
+    deleteDeckAndGoBack,
+    restoreDeck,
+    purgeDeck,
     setSettings,
     startQuiz,
     finishQuiz,

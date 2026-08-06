@@ -134,6 +134,12 @@ export interface SyncCursor {
 /** daily_claims.kind와 1:1로 대응. 새 미션이 생기면 여기에 값만 추가하면 된다. */
 export type ClaimKind = 'attendance' | 'mission_revive';
 
+/** 휴지통에 담긴 단어장 하나. 실수로 지운 걸 복원할 수 있게, 삭제해도 바로 못 없앤다. */
+export interface DeletedDeck {
+  name: string;
+  deletedAt: number;
+}
+
 export interface DB {
   version: 7;
   words: Word[];
@@ -149,6 +155,12 @@ export interface DB {
    * 로컬에만 있다 — 단어가 하나라도 들어가는 순간부터는 그 단어를 통해 동기화된다.
    */
   decks: string[];
+  /**
+   * 단어장 삭제 시 여기로 옮겨진다("휴지통") — 그 단어장 소속 단어들도 같이 소프트
+   * 삭제되지만, 완전 삭제를 누르기 전까지는 이 목록에 이름이 남아 복원할 수 있다.
+   * decks와 마찬가지로 계정에는 동기화되지 않고 기기 로컬에만 있다.
+   */
+  deletedDecks: DeletedDeck[];
   /**
    * 선택한 색 테마. 로컬(오프라인 우선, 즉시 반영)에 항상 저장되고, 로그인
    * 상태면 계정(profiles.theme)에도 올라가 다른 기기에서도 마지막에 고른

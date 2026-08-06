@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import type { Word } from '../types';
+import type { DeletedDeck, Word } from '../types';
 import { download, exportCSV, exportWordsJSON } from '../lib/storage';
 import CreateDeckModal from './CreateDeckModal';
+import TrashModal from './TrashModal';
 
 function nextAutoName(decks: string[]): string {
   let n = 1;
@@ -12,8 +13,13 @@ function nextAutoName(decks: string[]): string {
 interface Props {
   words: Word[];
   decks: string[];
+  deletedDecks: DeletedDeck[];
+  /** 방금 이 화면으로 넘어오게 만든 동작(삭제 등)이 있으면 한 번 보여준다. */
+  notice?: string;
   onCreateDeck: (name: string) => { ok: boolean; error?: string };
   onSelectDeck: (name: string) => void;
+  onRestoreDeck: (name: string) => { ok: boolean; error?: string };
+  onPurgeDeck: (name: string) => void;
   onBack: () => void;
 }
 
@@ -22,8 +28,19 @@ interface Props {
  * 여러 개면 뭘 고치는지 헷갈렸다 — 이제는 단어장을 먼저 블록으로 고르고, 실제 추가·
  * 수정은 DeckDetailScreen(단어장 하나 안)에서만 한다.
  */
-export default function DeckListScreen({ words, decks, onCreateDeck, onSelectDeck, onBack }: Props) {
+export default function DeckListScreen({
+  words,
+  decks,
+  deletedDecks,
+  notice,
+  onCreateDeck,
+  onSelectDeck,
+  onRestoreDeck,
+  onPurgeDeck,
+  onBack,
+}: Props) {
   const [showCreate, setShowCreate] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
   const countOf = (name: string) => words.filter((w) => w.deck === name).length;
 
   return (
@@ -34,6 +51,9 @@ export default function DeckListScreen({ words, decks, onCreateDeck, onSelectDec
         </button>
         <h2>단어장 관리</h2>
         <div className="topbar-right">
+          <button className="btn ghost sm" onClick={() => setShowTrash(true)}>
+            휴지통{deletedDecks.length > 0 ? ` (${deletedDecks.length})` : ''}
+          </button>
           <button
             className="btn ghost sm"
             onClick={() =>
@@ -55,6 +75,12 @@ export default function DeckListScreen({ words, decks, onCreateDeck, onSelectDec
         </div>
       </div>
 
+      {notice && (
+        <p className="notice-bar" role="status">
+          {notice}
+        </p>
+      )}
+
       <div className="room-list">
         {decks.map((name) => (
           <button key={name} className="room-list-item" onClick={() => onSelectDeck(name)}>
@@ -73,6 +99,15 @@ export default function DeckListScreen({ words, decks, onCreateDeck, onSelectDec
           suggestedName={nextAutoName(decks)}
           onCreate={onCreateDeck}
           onClose={() => setShowCreate(false)}
+        />
+      )}
+
+      {showTrash && (
+        <TrashModal
+          deletedDecks={deletedDecks}
+          onRestore={onRestoreDeck}
+          onPurge={onPurgeDeck}
+          onClose={() => setShowTrash(false)}
         />
       )}
     </div>
