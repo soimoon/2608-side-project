@@ -727,6 +727,10 @@ input[type='radio'] {
 .pron-none {
   font-size: 0.8rem;
 }
+.pron-base {
+  font-size: 0.75rem;
+  font-style: italic;
+}
 .pron.sm .pron-play {
   padding: 1px 6px;
   font-size: 0.8rem;

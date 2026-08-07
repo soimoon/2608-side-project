@@ -15,6 +15,7 @@ interface PronounceResponse {
     ipa?: string;
     audioUrl?: string;
     source: string;
+    baseWord?: string;
   }[];
   remaining?: number;
   error?: string;
@@ -29,6 +30,7 @@ interface PronunciationRow {
   ipa: string | null;
   audio_url: string | null;
   source: string;
+  base_word: string | null;
 }
 
 /**
@@ -42,7 +44,7 @@ async function fetchFromSharedCache(words: string[]): Promise<Pronunciation[]> {
   try {
     const { data, error } = await supabase
       .from('pronunciations')
-      .select('en, ipa, audio_url, source')
+      .select('en, ipa, audio_url, source, base_word')
       .in('en', words);
     if (error || !data) return [];
     const now = Date.now();
@@ -52,6 +54,7 @@ async function fetchFromSharedCache(words: string[]): Promise<Pronunciation[]> {
       audioUrl: r.audio_url ?? undefined,
       source: normalizeSource(r.source),
       fetchedAt: now,
+      baseWord: r.base_word ?? undefined,
     }));
   } catch {
     return [];
@@ -91,6 +94,7 @@ export async function fetchPronunciations(words: string[]): Promise<Pronunciatio
       audioUrl: p.audioUrl,
       source: normalizeSource(p.source),
       fetchedAt: now,
+      baseWord: p.baseWord,
     }));
     return [...cached, ...fetched];
   } catch (e) {

@@ -84,6 +84,9 @@ export interface Pronunciation {
   /** 'none'은 "두 사전 모두 확인했지만 없었다" — 다시 조회하지 않기 위해 이것도 캐시한다. */
   source: 'learners' | 'collegiate' | 'none';
   fetchedAt: number;
+  /** 있으면 이 발음이 en 자신이 아니라 원형 단어(예: successively → successive)의
+   *  실제 MW 녹음이라는 뜻 — UI가 "OO의 발음"이라고 밝혀 준다. */
+  baseWord?: string;
 }
 
 /**

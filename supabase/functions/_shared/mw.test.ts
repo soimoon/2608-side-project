@@ -163,6 +163,44 @@ describe('extractPronunciation', () => {
     });
   });
 
+  // "successively"/"astoundingly"류 실제 응답 패턴: 굴절형(ins)엔 발음이 없고
+  // 표제어(원형)에만 있다. AHD 등 다른 사전도 마찬가지라 이 단어들 자체는 원래
+  // 별도 녹음이 없다 — 원형 발음을 baseWord와 함께 폴백으로 준다.
+  it('굴절형에 자체 발음이 없으면 표제어(원형) 발음을 baseWord와 함께 폴백으로 준다', () => {
+    const data = [
+      {
+        meta: { id: 'successive' },
+        hwi: { hw: 'suc*ces*sive', prs: [{ ipa: 'səkˈsɛsɪv', sound: { audio: 'success03' } }] },
+        ins: [{ if: 'suc*ces*sive*ly' }],
+      },
+    ];
+    const got = extractPronunciation(data, 'successively');
+    expect(got).toEqual({
+      phonetic: 'səkˈsɛsɪv',
+      notation: 'ipa',
+      audioUrl: 'https://media.merriam-webster.com/audio/prons/en/us/mp3/s/success03.mp3',
+      baseWord: 'successive',
+    });
+  });
+
+  it('굴절형 자체에 발음이 있으면(quickly류) baseWord 폴백보다 그쪽을 우선한다', () => {
+    const data = [
+      {
+        meta: { id: 'quick' },
+        hwi: { hw: 'quick', prs: [{ ipa: 'ˈkwɪk' }] },
+        ins: [{ if: 'quick*ly', prs: [{ ipa: 'ˈkwɪkli', sound: { audio: 'quickl01' } }] }],
+      },
+    ];
+    const got = extractPronunciation(data, 'quickly');
+    expect(got?.baseWord).toBeUndefined();
+    expect(got?.phonetic).toBe('ˈkwɪkli');
+  });
+
+  it('굴절형도 표제어도 둘 다 발음이 없으면 여전히 null이다', () => {
+    const data = [{ meta: { id: 'foo' }, hwi: { hw: 'foo' }, ins: [{ if: 'foo*ly' }] }];
+    expect(extractPronunciation(data, 'fooly')).toBeNull();
+  });
+
   it('굴절형 문자열이 정확히 일치하지 않으면 발음을 주지 않는다', () => {
     const data = [
       {

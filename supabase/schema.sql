@@ -150,8 +150,16 @@ create table if not exists pronunciations (
   ipa text,
   audio_url text,
   source text not null,
-  fetched_at timestamptz not null default now()
+  fetched_at timestamptz not null default now(),
+  -- null이 아니면 이 발음이 조회어 자신의 것이 아니라 원형 단어(예: successively →
+  -- successive)의 실제 MW 녹음을 대신 보여주는 것 — 클라이언트가 "OO의 발음"이라고
+  -- 라벨을 붙이는 데 쓴다. -ly/-ing처럼 규칙적으로 파생된 단어는 MW가 원형에만
+  -- 발음을 싣고 파생형 자체엔 안 싣는 경우가 흔해서 생긴 필드다.
+  base_word text
 );
+
+-- 이미 pronunciations 테이블이 있는 프로젝트를 위한 추가 구문.
+alter table pronunciations add column if not exists base_word text;
 
 alter table pronunciations enable row level security;
 
@@ -1558,3 +1566,13 @@ grant execute on function list_friends() to authenticated;
 -- 조용히 무시된다. 아래를 한 번만 따로 실행한다.
 --
 --   alter table profiles add column if not exists theme text not null default 'blue';
+
+-- ---------- 마이그레이션: pronunciations의 'none' 캐시 무효화 ----------
+-- pronounce Edge Function이 -ly/-ing 등 파생형에 원형 단어 발음을 폴백으로 쓰도록
+-- 바뀌었다. 이미 source='none'으로 "확인했지만 없음"이라고 캐시해 둔 행들은 이
+-- 변경 전에 조회된 것이라 폴백을 못 받아 봤다 — 한 번만 지워서 다음에 다시
+-- 조회될 때 새 로직을 타게 한다(진짜로 원형도 발음이 없는 단어는 다시 'none'으로
+-- 캐시될 뿐이라 안전하다). 단어장이 크면 MW 할당량을 꽤 태울 수 있으니 급하지
+-- 않다면 안 해도 된다 — 그 단어를 다시 마주칠 때 자연히 새로 조회된다.
+--
+--   delete from pronunciations where source = 'none';

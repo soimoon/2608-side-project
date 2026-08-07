@@ -22,6 +22,9 @@ export interface MwPronunciation {
   notation?: Notation;
   /** MW CDN의 mp3 주소. 음원을 우리 쪽에 복사해 두지 않고 이 URL만 저장한다. */
   audioUrl?: string;
+  /** 조회어 자신의 발음이 아니라 원형 단어의 발음을 대신 준 경우, 그 원형 단어.
+   *  클라이언트가 "OO의 발음"이라고 밝혀 주는 데 쓴다. */
+  baseWord?: string;
 }
 
 /**
@@ -113,9 +116,15 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
   if (typeof data[0] === 'string') return null;
 
   const want = query.trim().toLowerCase();
+  // 조회어 자체엔 발음이 없지만, MW가 이 조회어를 어떤 표제어의 규칙적인 파생형
+  // (굴절형)으로는 확실히 인식한 경우에 한해 그 표제어(원형) 발음을 폴백으로 쓴다.
+  // "엉뚱한 단어" 위험이 없는 이유: MW 자신이 이 조회어=이 표제어의 파생형이라고
+  // 이미 밝힌 뒤이기 때문이다(굴절형 문자열이 정확히 일치할 때만 후보로 삼는다).
+  let baseFallback: MwPronunciation | null = null;
 
   for (const entry of data as MwEntry[]) {
     if (!entry || typeof entry !== 'object') continue;
+    const hw = headwordOf(entry);
 
     // 표제어(meta.id/hwi.hw)가 정확히 일치하는 항목이면, 본표제어 발음이 우선이고
     // 없으면 철자 변형(vrs)의 발음을 쓴다. MW 문서상 vrs.prs는 "그 변형 철자에 대한
@@ -123,7 +132,7 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
     // 사실상 같은 스펠링 변형에서 본표제어 쪽이 비어 있고 vrs 쪽에만 발음이 실리는
     // 경우가 흔하다(예: synthesize). 이미 표제어 자체는 위에서 확인했으므로
     // "엉뚱한 단어" 위험 없이 커버리지만 늘어난다.
-    if (headwordOf(entry) === want) {
+    if (hw === want) {
       const candidates = [...(entry.hwi?.prs ?? []), ...(entry.vrs ?? []).flatMap((v) => v.prs ?? [])];
       const found = pickPronunciation(candidates);
       if (found) return found;
@@ -139,9 +148,18 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
       if (inflectionWord !== want) continue;
       const found = pickPronunciation(inflection.prs ?? []);
       if (found) return found;
+
+      // 굴절형 자체엔(quickly처럼) 자체 발음이 없다 — successively/astoundingly류가
+      // 실제로 이 경우다. 표제어(원형) 발음이 있으면 폴백 후보로 남겨 둔다. 정확한
+      // 일치가 끝까지 하나도 안 나오면 이걸 대신 쓴다.
+      if (!baseFallback && hw) {
+        const hwCandidates = [...(entry.hwi?.prs ?? []), ...(entry.vrs ?? []).flatMap((v) => v.prs ?? [])];
+        const hwFound = pickPronunciation(hwCandidates);
+        if (hwFound) baseFallback = { ...hwFound, baseWord: hw };
+      }
     }
   }
-  return null;
+  return baseFallback;
 }
 
 /** MW 조회 URL. 키는 절대 클라이언트로 나가면 안 되므로 Edge Function에서만 부른다. */

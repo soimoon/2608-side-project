@@ -34,6 +34,8 @@ interface PronunciationRow {
   audio_url: string | null;
   /** 'learners' | 'collegiate' | 'none'. 'none'은 "MW에 없음을 확인함" — 재조회를 막는다. */
   source: string;
+  /** null이 아니면 조회어 자신이 아니라 이 원형 단어의 발음을 대신 준 것. */
+  base_word: string | null;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -114,7 +116,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: cached, error: cacheErr } = await admin
     .from('pronunciations')
-    .select('en, ipa, audio_url, source')
+    .select('en, ipa, audio_url, source, base_word')
     .in('en', wanted);
   if (cacheErr) return json({ error: cacheErr.message }, 500);
 
@@ -138,6 +140,7 @@ Deno.serve(async (req: Request) => {
         ipa: result?.phonetic ?? null,
         audio_url: result?.audioUrl ?? null,
         source,
+        base_word: result?.baseWord ?? null,
       } satisfies PronunciationRow;
     });
 
@@ -156,6 +159,7 @@ Deno.serve(async (req: Request) => {
       ipa: r.ipa ?? undefined,
       audioUrl: r.audio_url ?? undefined,
       source: r.source,
+      baseWord: r.base_word ?? undefined,
     })),
     // 상한에 걸려 아직 조회하지 못한 단어 수. 클라이언트가 나눠서 다시 요청하면 된다.
     remaining: Math.max(0, wanted.length - rows.length),
