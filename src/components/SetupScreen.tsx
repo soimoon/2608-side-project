@@ -165,6 +165,7 @@ export default function SetupScreen({
                 onChange={(e) =>
                   patch({ seconds: Math.min(120, Math.max(3, Number(e.target.value) || 3)) })
                 }
+                onFocus={(e) => e.target.select()}
               />
               <button
                 className="btn ghost sm"
@@ -192,6 +193,7 @@ export default function SetupScreen({
                 value={s.count}
                 disabled={s.strategy === 'range'}
                 onChange={(e) => patch({ count: Math.max(1, Number(e.target.value) || 1) })}
+                onFocus={(e) => e.target.select()}
               />
               <button
                 className="btn ghost sm"
@@ -252,6 +254,7 @@ export default function SetupScreen({
                       max={sortedAvailable.length || 1}
                       value={rangeFrom}
                       onChange={(e) => patch({ rangeFrom: Math.max(1, Number(e.target.value) || 1) })}
+                      onFocus={(e) => e.target.select()}
                     />
                     <span>번째부터</span>
                     <input
@@ -260,6 +263,7 @@ export default function SetupScreen({
                       max={sortedAvailable.length || 1}
                       value={rangeTo}
                       onChange={(e) => patch({ rangeTo: Math.max(1, Number(e.target.value) || 1) })}
+                      onFocus={(e) => e.target.select()}
                     />
                     <span>번째 단어까지 출제</span>
                   </div>
