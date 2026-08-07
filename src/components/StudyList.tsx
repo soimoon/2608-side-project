@@ -61,9 +61,13 @@ export default function StudyList({
     void onFetchPronunciations(list);
   }, [list, onFetchPronunciations]);
 
-  const existing = useMemo(() => new Set(words.map((w) => w.en.toLowerCase())), [words]);
   // "전체 단어장" 필터일 땐 넣을 단어장이 없으니 기본 단어장으로 떨어진다.
   const addDeck = filterDeck || DEFAULT_DECK;
+  // 같은 단어장 안에서만 중복을 막는다 — 다른 단어장에 이미 있어도 여기 추가는 허용.
+  const existing = useMemo(
+    () => new Set(words.filter((w) => w.deck === addDeck).map((w) => w.en.toLowerCase())),
+    [words, addDeck],
+  );
 
   /** 화면에 보이는 순서에서 from번째를 to번째로 옮긴다. 보통 한 단어의 order만 바뀐다. */
   function move(from: number, to: number) {

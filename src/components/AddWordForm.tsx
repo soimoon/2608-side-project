@@ -10,7 +10,8 @@ interface Props {
   onDeckChange: (deck: string) => void;
   /** true면 단어장 선택 UI를 감추고 deck 값을 그대로 쓴다(이미 특정 단어장 화면 안이라 고를 필요가 없을 때). */
   hideDeckPicker?: boolean;
-  /** 소문자 영단어 집합. 중복 등록을 막는 데 쓴다. */
+  /** 지금 넣을 단어장(deck) 안에 이미 있는 소문자 영단어 집합. 중복 등록을 막는 데 쓴다
+   *  — 다른 단어장에 같은 단어가 있는 건 막지 않는다(호출부가 이미 deck으로 필터링해 넘김). */
   existing: Set<string>;
   onAdd: (word: Word) => void;
   onNotice: (message: string) => void;

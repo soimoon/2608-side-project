@@ -105,9 +105,13 @@ create table if not exists words (
 -- 이미 words 테이블을 만들어 둔 프로젝트를 위한 추가 구문 (처음 만드는 경우엔 위에서 이미 생겼다).
 alter table words add column if not exists sort_order double precision;
 
--- 같은 철자를 두 번 등록하지 못하게 한다. 삭제된(deleted_at is not null) 행은 예외.
-create unique index if not exists words_user_en_uniq
-  on words (user_id, lower(en)) where deleted_at is null;
+-- 같은 단어장 안에서만 같은 철자를 두 번 등록하지 못하게 한다 — 단어장이 다르면
+-- 같은 단어를 여러 단어장에 넣을 수 있어야 한다(예: "성공적으로"를 토플 단어장과
+-- 복습 단어장에 둘 다 두고 싶을 수 있음). 삭제된(deleted_at is not null) 행은 예외.
+-- 예전엔 (user_id, en)만으로 전역 유일이었다 — 이름을 바꿔 옛 인덱스를 지우고 새로 만든다.
+drop index if exists words_user_en_uniq;
+create unique index if not exists words_user_deck_en_uniq
+  on words (user_id, deck, lower(en)) where deleted_at is null;
 create index if not exists words_user_updated on words (user_id, updated_at);
 
 alter table words enable row level security;

@@ -64,7 +64,12 @@ export default function DeckDetailScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decks, deckName]);
 
-  const existing = useMemo(() => new Set(words.map((w) => w.en.toLowerCase())), [words]);
+  // 같은 단어장 안에서만 중복을 막는다 — 다른 단어장에 이미 있어도 여기 추가는
+  // 허용한다(schema.sql의 words_user_deck_en_uniq와 같은 기준).
+  const existing = useMemo(
+    () => new Set(words.filter((w) => w.deck === deckName).map((w) => w.en.toLowerCase())),
+    [words, deckName],
+  );
 
   const quickCount = useMemo(() => parseBulk(bulk), [bulk]);
 
