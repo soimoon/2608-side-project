@@ -5,7 +5,8 @@
  * 음원: Kenney.nl Interface Sounds 팩(CC0, 상업적 이용 무료) — public/sfx/LICENSE.txt 참고.
  *
  * 공부 앱이라 "산만하지 않고 조용하게"가 핵심 요구사항이었다 — 전체 볼륨을 낮게
- * 잡고, 카운트다운 tick만 사용자 요청대로 그중에서도 75%로 한 번 더 낮춘다.
+ * 잡고, 카운트다운 tick은 실사용 피드백으로 한 번 더(75% → 37.5%) 낮췄다 — 3초
+ * 동안 세 번이나 울리는 소리라 이만큼 낮추지 않으면 정답/오답보다 오히려 더 거슬린다.
  */
 
 const MASTER_VOLUME = 0.5;
@@ -14,9 +15,7 @@ const SOUNDS = {
   correct: { file: 'correct.ogg', volume: 1 },
   /** 정답보다 한 단계 조용하게. */
   wrong: { file: 'wrong.ogg', volume: 0.8 },
-  /** 정답/오답보다 한 단계 더 조용하게 — 3초 동안 세 번이나 울리는 소리라 이만큼
-   *  낮추지 않으면 정답/오답보다 오히려 더 거슬린다. */
-  tick: { file: 'tick.ogg', volume: 0.75 },
+  tick: { file: 'tick.ogg', volume: 0.375 },
 } as const satisfies Record<string, { file: string; volume: number }>;
 
 export type SfxName = keyof typeof SOUNDS;
