@@ -33,21 +33,14 @@ export default function PronounceButton({ pron, showPhonetic = true, size = 'md'
   const baseNote = pron.baseWord ? `"${pron.baseWord}"의 발음` : null;
 
   if (!pron.audioUrl) {
+    // baseNote(원형 라벨)는 여기서 안 보여준다 — 버튼 없이 "OO의 발음"이라고만
+    // 밝히면 "그럼 왜 못 들어" 하는 혼란만 남는다(실제 피드백). 재생할 음원이
+    // 진짜로 하나도 없는 correspondingly류는 그냥 "발음 없음"만 보여준다.
     return (
       <span className={`pron ${size}`}>
         {phonetic && (
           <span className="pron-ipa" title={notationLabel}>
             {phonetic}
-          </span>
-        )}
-        {/* correspondingly처럼 원형(corresponding) 자체도 MW에 음원 없이 발음기호만
-         *  실려 있는 드문 경우 — 재생 버튼은 못 주지만 누구 발음기호인지는 밝혀 준다. */}
-        {baseNote && (
-          <span
-            className="pron-base muted"
-            title={`"${pron.en}"은(는) "${pron.baseWord}"에서 규칙적으로 파생된 단어라 발음도 사실상 같습니다`}
-          >
-            {baseNote}
           </span>
         )}
         <span

@@ -125,6 +125,21 @@ function headwordCandidates(entry: MwEntry): MwPrs[] {
   ];
 }
 
+/** 같은 표제어를 쓰는 동형이의어가 여러 항목으로 나뉘어 있을 수 있다(예: "account"의
+ *  명사 항목엔 진짜 음원이 있는데, "account for"가 걸린 동사 항목엔 altprs만 있고
+ *  음원이 없는 경우 — 실제로 확인한 사례). 한 항목만 보면 음원이 바로 옆 항목에
+ *  있어도 놓치므로, 표제어가 같은 모든 항목의 후보를 모아서 pickPronunciation이
+ *  그중 음원 있는 걸 고르게 한다. */
+function candidatesForHeadword(data: MwEntry[], hw: string): MwPrs[] {
+  const out: MwPrs[] = [];
+  for (const entry of data) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (headwordOf(entry) !== hw) continue;
+    out.push(...headwordCandidates(entry));
+  }
+  return out;
+}
+
 /** "on/upon"처럼 "/"로 대체 형태를 묶어 쓴 표기를 개별 문자열로 펼친다.
  *  "depend on/upon" → ["depend on", "depend upon"]. "/"가 없으면 그대로 하나. */
 function expandSlashVariants(phrase: string): string[] {
@@ -139,8 +154,12 @@ function expandSlashVariants(phrase: string): string[] {
   return [withA.join(' '), withB.join(' ')];
 }
 
-/** prs 후보 목록에서 첫 번째로 쓸 만한(발음기호 또는 음원이 있는) 것을 뽑는다. */
+/** prs 후보 목록에서 쓸 만한(발음기호 또는 음원이 있는) 것을 뽑는다. 음원이 있는
+ *  후보를 항상 우선한다 — 동형이의어의 한 항목엔 텍스트 발음기호만, 다른 항목엔
+ *  진짜 음원이 있는 경우(account 사례) 텍스트만 있는 걸 먼저 골라버리면 실제로
+ *  존재하는 음원을 놓치게 된다. */
 function pickPronunciation(candidates: MwPrs[]): MwPronunciation | null {
+  let textOnly: MwPronunciation | null = null;
   for (const p of candidates) {
     // Learner's의 ipa를 우선한다 — 한국 학습자에게는 MW 자체 표기보다 IPA가 읽기 쉽다.
     const phonetic = p.ipa ?? p.mw;
@@ -148,13 +167,15 @@ function pickPronunciation(candidates: MwPrs[]): MwPronunciation | null {
     const file = p.sound?.audio;
     if (!phonetic && !file) continue;
 
-    return {
+    const result = {
       phonetic: phonetic || undefined,
       notation,
       audioUrl: file ? audioUrl(file) : undefined,
     };
+    if (file) return result;
+    if (!textOnly) textOnly = result;
   }
-  return null;
+  return textOnly;
 }
 
 /**
@@ -175,8 +196,9 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
   // "엉뚱한 단어" 위험이 없는 이유: MW 자신이 이 조회어=이 표제어의 파생형이라고
   // 이미 밝힌 뒤이기 때문이다(굴절형 문자열이 정확히 일치할 때만 후보로 삼는다).
   let baseFallback: MwPronunciation | null = null;
+  const entries = data as MwEntry[];
 
-  for (const entry of data as MwEntry[]) {
+  for (const entry of entries) {
     if (!entry || typeof entry !== 'object') continue;
     const hw = headwordOf(entry);
 
@@ -185,9 +207,10 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
     // 것"이라 원칙적으로 본표제어 발음은 아니지만, 실제로는 -ize/-ise처럼 소리가
     // 사실상 같은 스펠링 변형에서 본표제어 쪽이 비어 있고 vrs 쪽에만 발음이 실리는
     // 경우가 흔하다(예: synthesize). 이미 표제어 자체는 위에서 확인했으므로
-    // "엉뚱한 단어" 위험 없이 커버리지만 늘어난다.
+    // "엉뚱한 단어" 위험 없이 커버리지만 늘어난다. 동형이의어로 항목이 나뉜 경우
+    // (예: "account"의 명사/동사)엔 같은 표제어를 쓰는 다른 항목의 음원도 같이 본다.
     if (hw === want) {
-      const found = pickPronunciation(headwordCandidates(entry));
+      const found = pickPronunciation(candidatesForHeadword(entries, hw));
       if (found) return found;
     }
 
@@ -205,7 +228,7 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
       // 굴절형 자체엔(quickly처럼) 자체 발음이 없다 — 표제어(원형) 발음이 있으면
       // 폴백 후보로 남겨 둔다. 정확한 일치가 끝까지 하나도 안 나오면 이걸 대신 쓴다.
       if (!baseFallback && hw) {
-        const hwFound = pickPronunciation(headwordCandidates(entry));
+        const hwFound = pickPronunciation(candidatesForHeadword(entries, hw));
         if (hwFound) baseFallback = { ...hwFound, baseWord: hw };
       }
     }
@@ -221,7 +244,7 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
 
       // 드물게 run-on 자체엔 발음이 없는 경우에 대비해 ins와 동일하게 원형 폴백을 남긴다.
       if (!baseFallback && hw) {
-        const hwFound = pickPronunciation(headwordCandidates(entry));
+        const hwFound = pickPronunciation(candidatesForHeadword(entries, hw));
         if (hwFound) baseFallback = { ...hwFound, baseWord: hw };
       }
     }
@@ -230,6 +253,8 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
     // phrase"(dros)다. 실제 응답으로 확인한 바 자체 발음을 거의 안 갖고 있어서(구동사
     // 발음이 구성 단어와 다르지 않기 때문으로 보인다), 표제어(핵심 동사) 발음을
     // baseWord와 함께 폴백으로 준다 — "account for"엔 "account"의 발음을 보여주는 식.
+    // account처럼 동형이의어로 항목이 나뉘어 있으면(동사 항목엔 altprs만, 명사
+    // 항목엔 진짜 음원) 표제어가 같은 모든 항목을 같이 본다.
     for (const runOnPhrase of entry.dros ?? []) {
       if (!runOnPhrase.drp) continue;
       const variants = expandSlashVariants(runOnPhrase.drp.replace(/\*/g, '').trim().toLowerCase());
@@ -239,7 +264,7 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
       if (found) return found;
 
       if (!baseFallback && hw) {
-        const hwFound = pickPronunciation(headwordCandidates(entry));
+        const hwFound = pickPronunciation(candidatesForHeadword(entries, hw));
         if (hwFound) baseFallback = { ...hwFound, baseWord: hw };
       }
     }

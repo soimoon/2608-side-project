@@ -275,6 +275,34 @@ describe('extractPronunciation', () => {
     expect(got).toEqual({ phonetic: 'əˈkaʊnt', notation: 'ipa', baseWord: 'account' });
   });
 
+  // 동형이의어가 항목을 나눠 쓸 때(예: "account"의 명사:1/동사:2), dros가 걸린
+  // 항목엔 음원이 없어도 같은 표제어를 쓰는 다른 항목엔 진짜 음원이 있을 수 있다.
+  // account for는 실제로 이 상태였다 — 명사 항목의 음원을 놓치고 있었다.
+  it('동형이의어 중 한 항목에만 음원이 있으면 dros 폴백도 그 음원을 찾아 쓴다', () => {
+    const data = [
+      {
+        meta: { id: 'account:1' },
+        hom: 1,
+        hwi: { hw: 'account', prs: [{ ipa: 'əˈkaʊnt', sound: { audio: 'account01' } }] },
+        fl: 'noun',
+      },
+      {
+        meta: { id: 'account:2' },
+        hom: 2,
+        hwi: { hw: 'account', altprs: [{ ipa: 'əˈkaʊnt' }] },
+        fl: 'verb',
+        dros: [{ drp: 'account for', gram: 'phrasal verb' }],
+      },
+    ];
+    const got = extractPronunciation(data, 'account for');
+    expect(got).toEqual({
+      phonetic: 'əˈkaʊnt',
+      notation: 'ipa',
+      audioUrl: 'https://media.merriam-webster.com/audio/prons/en/us/mp3/a/account01.mp3',
+      baseWord: 'account',
+    });
+  });
+
   // 실제 Learner's 응답: "depend on/upon"처럼 "/"로 대체 형태를 묶어 쓴다.
   it('dros의 "/" 대체 표기를 펼쳐서 일치시킨다("depend on/upon" → "depend on")', () => {
     const data = [

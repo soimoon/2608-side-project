@@ -45,12 +45,40 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-/** MW 한 단어 조회. 실패하면 null — 한 단어가 죽어도 나머지는 살아야 한다. */
+/** 사전 하나에서 한 단어를 찾아 음원 있는 결과만 돌려준다(없으면 null). baseWord를
+ *  직접 재조회하는 용도라 텍스트뿐인 결과는 의미가 없어 버린다. */
+async function fetchAudioOnly(
+  word: string,
+  ref: 'learners' | 'collegiate',
+  key: string,
+): Promise<MwPronunciation | null> {
+  try {
+    const res = await fetch(lookupUrl(ref, word, key));
+    if (!res.ok) return null;
+    const found = extractPronunciation(await res.json(), word);
+    return found?.audioUrl ? found : null;
+  } catch (e) {
+    console.error(`MW ${ref} 조회 실패: ${word}`, e);
+    return null;
+  }
+}
+
+/**
+ * MW 한 단어 조회. 실패하면 null — 한 단어가 죽어도 나머지는 살아야 한다.
+ *
+ * 두 사전(Learner's·Collegiate) 중 하나가 음원 없는 발음기호만 주더라도 바로
+ * 확정하지 않고 나머지 사전도 마저 확인한다. 그래도 음원이 하나도 없고 baseWord
+ * 폴백(원형 단어)만 있다면, **그 원형 단어를 직접 한 번 더 조회**한다 — "account for"
+ * 실제 사례: 이 조회의 응답엔 "account"의 동사 항목(음원 없음)만 들어있고, 명사
+ * 항목(진짜 음원 있음)은 아예 응답에 없었다. 동형이의어를 한 응답 안에서 다 주지
+ * 않는 경우가 있어서, 원형 자체를 따로 불러야 그 음원을 찾을 수 있다.
+ */
 async function lookupOne(
   word: string,
   keys: { learners?: string; collegiate?: string },
 ): Promise<{ result: MwPronunciation | null; source: string }> {
   const references: ('learners' | 'collegiate')[] = ['learners', 'collegiate'];
+  let textOnly: { result: MwPronunciation; source: string } | null = null;
 
   for (const ref of references) {
     const key = ref === 'learners' ? keys.learners : keys.collegiate;
@@ -59,11 +87,25 @@ async function lookupOne(
       const res = await fetch(lookupUrl(ref, word, key));
       if (!res.ok) continue;
       const found = extractPronunciation(await res.json(), word);
-      if (found) return { result: found, source: ref };
+      if (!found) continue;
+      if (found.audioUrl) return { result: found, source: ref };
+      if (!textOnly) textOnly = { result: found, source: ref };
     } catch (e) {
       console.error(`MW ${ref} 조회 실패: ${word}`, e);
     }
   }
+
+  if (textOnly?.result.baseWord) {
+    for (const ref of references) {
+      const key = ref === 'learners' ? keys.learners : keys.collegiate;
+      if (!key) continue;
+      const audio = await fetchAudioOnly(textOnly.result.baseWord, ref, key);
+      if (audio) return { result: { ...textOnly.result, ...audio }, source: textOnly.source };
+    }
+  }
+
+  // 어느 사전도 음원은 못 줬지만 발음기호만이라도 준 게 있으면 그거라도 쓴다.
+  if (textOnly) return textOnly;
   // 두 사전 모두 확인했지만 없었다 — 이것도 캐시해 다음에 다시 부르지 않는다.
   return { result: null, source: 'none' };
 }
