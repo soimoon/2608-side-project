@@ -830,7 +830,15 @@ begin
 
   end_at := r.started_at + (r.lead_in_ms + jsonb_array_length(r.words) * (r.answer_ms + r.reveal_ms))
             * interval '1 millisecond';
-  if now() < end_at and fresh_count > 1 then return; end if;
+  -- 5초 여유(grace)를 둔다 — 클라이언트는 자기 시계로 lockstep 스케줄을 계산해
+  -- "끝났다"고 판단한 뒤 이 함수를 부르는데, 서버·클라이언트 시계가 몇 초만
+  -- 어긋나도(또는 RPC 왕복 지연만 있어도) now() < end_at이 그대로 참이 돼 정상
+  -- 종료된 판까지 조용히 무시되는 버그가 있었다 — finished_at이 영영 안 찍혀서
+  -- "단체게임 1판 완주" 미션도, 1등 보상도 못 받는데 결과 화면은 정상으로 보였다
+  -- (GroupResultScreen이 room_answers만으로 계산해 finished_at을 안 봐서 증상이
+  -- 안 드러났다). 정말 일찍 끝내야 하는 경우(중간에 다들 나감)는 fresh_count<=1로
+  -- 이미 걸러지므로, 이 여유 때문에 진짜 조기 종료를 오판할 위험은 없다.
+  if now() < end_at - interval '5 seconds' and fresh_count > 1 then return; end if;
 
   update game_rooms set status = 'lobby', finished_at = now(), last_activity_at = now()
     where id = p_room_id;
