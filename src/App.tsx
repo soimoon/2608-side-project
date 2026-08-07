@@ -14,8 +14,10 @@ import {
   pullDailyClaims,
   pullRevivalEvents,
   pullTheme,
+  pullTodaySessions,
   pushDailyClaim,
   pushRevivalEvents,
+  pushSession,
   pushTheme,
 } from './lib/sync';
 import { REVIVAL_STREAK_GOAL, claimKey, kstDateKey } from './lib/attendance';
@@ -207,6 +209,29 @@ export default function App() {
           const merged = [...new Set([...base, ...remoteIds])];
           if (merged.length === base.length && d.dailyMission.date === today) return d;
           return { ...d, dailyMission: { date: today, revivedWordIds: merged } };
+        });
+      });
+    };
+    pull();
+    window.addEventListener('focus', pull);
+    return () => window.removeEventListener('focus', pull);
+  }, [sync.session]);
+
+  // 로그인 직후 + 창 포커스를 되찾을 때마다, 오늘 다른 기기(또는 재설치 전 계정)에
+  // 끝낸 세션을 가져와 합친다. history는 기기 로컬 전용이었어서, 앱을 지웠다 깔면
+  // "오늘의 미션"(문제풀기·정답률) 진행이 초기화되는 문제가 있었다 — revival_events와
+  // 같은 이유로 같은 패턴을 쓴다(불변 데이터라 id로 합집합이면 충분).
+  useEffect(() => {
+    const userId = sync.session?.user.id;
+    if (!userId) return;
+    const pull = () => {
+      void pullTodaySessions(userId, Date.now()).then((remote) => {
+        if (remote.length === 0) return;
+        setDB((d) => {
+          const localIds = new Set(d.history.map((h) => h.id));
+          const toAdd = remote.filter((h) => !localIds.has(h.id));
+          if (toAdd.length === 0) return d;
+          return { ...d, history: [...d.history, ...toAdd].slice(-500) };
         });
       });
     };
@@ -440,8 +465,9 @@ export default function App() {
         };
       });
 
-      if (sync.session && newlyRevivedIds.length > 0) {
-        void pushRevivalEvents(sync.session.user.id, today, newlyRevivedIds);
+      if (sync.session) {
+        void pushSession(sync.session.user.id, session);
+        if (newlyRevivedIds.length > 0) void pushRevivalEvents(sync.session.user.id, today, newlyRevivedIds);
       }
 
       setScreen({ name: 'result', session });

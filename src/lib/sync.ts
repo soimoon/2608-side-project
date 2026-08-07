@@ -1,16 +1,12 @@
 import { supabase } from './supabase';
 import { isTheme } from './storage';
 import { claimKey } from './attendance';
-import type { ClaimKind, Theme, Word } from '../types';
+import type { ClaimKind, SessionResult, Theme, Word } from '../types';
 
 /**
  * localStorage가 항상 정본이고, 이 파일은 그 위에 얹는 동기화 계층이다.
  * 여기 있는 모든 함수는 실패해도 절대 throw하지 않는다 — 실패 시 로컬 데이터는
  * 그대로 두고 다음 트리거(포커스 복귀, 다음 변경)에서 재시도하면 되기 때문이다.
- *
- * 이번 단계는 단어(words) 동기화만 다룬다. 세션 기록(sessions) 테이블은
- * schema.sql에 이미 있지만, 클라우드로 올리는 건 이후 단계로 미뤘다 — 학습 기록을
- * 잃는 것보다 단어장을 잃는 쪽이 훨씬 치명적이라 그쪽을 먼저 단단히 하는 게 맞다.
  */
 
 interface RemoteWordRow {
@@ -329,5 +325,79 @@ export async function pushRevivalEvents(
     );
   } catch {
     /* no-op */
+  }
+}
+
+interface SessionRow {
+  id: string;
+  date: string;
+  started_at: string;
+  finished_at: string;
+  settings: SessionResult['settings'];
+  attempts: SessionResult['attempts'];
+}
+
+/**
+ * 세션 기록(history)은 기기 로컬 전용이었다 — 앱을 지웠다 깔면 "오늘의 미션"
+ * (문제풀기·정답률)이 초기화되는 버그로 이어져 계정에도 남기기로 했다. sessions
+ * 테이블은 이미 schema.sql에 있었지만 push/pull이 연결된 적이 없었다.
+ *
+ * 세션은 끝난 뒤로 내용이 안 바뀌므로(불변) revival_events와 같은 단순한
+ * "append-only + 합집합" 병합이면 충분하다 — words처럼 정교한 병합 로직이 필요 없다.
+ * 실패해도 조용히 넘어간다 — 로컬 history는 이미 반영돼 있다.
+ */
+export async function pushSession(userId: string, session: SessionResult): Promise<void> {
+  if (!supabase) return;
+  try {
+    await supabase.from('sessions').upsert(
+      {
+        id: session.id,
+        user_id: userId,
+        date: session.date,
+        started_at: new Date(session.startedAt).toISOString(),
+        finished_at: new Date(session.finishedAt).toISOString(),
+        settings: session.settings,
+        attempts: session.attempts,
+      },
+      { onConflict: 'id', ignoreDuplicates: true },
+    );
+  } catch {
+    /* no-op */
+  }
+}
+
+/** 오늘(KST) 다른 기기에서 끝낸 세션을 가져온다. 미션 진행률·재설치 복구 용도라
+ *  범위를 오늘로만 좁힌다(revival_events pull과 같은 이유).
+ *
+ *  sessions.date는 기기 로컬 타임존 기준 문자열이라(SessionResult 생성부 참고)
+ *  그걸로 비교하지 않는다 — attendance.ts의 kstDateKey와 똑같이 KST 자정 경계를
+ *  직접 계산해 finished_at 범위로 걸러야, 로컬(todaySolvedCount 등)과 "오늘"의
+ *  기준이 어긋나지 않는다. */
+export async function pullTodaySessions(userId: string, nowMs: number): Promise<SessionResult[]> {
+  if (!supabase) return [];
+  try {
+    const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const kstMidnight = Math.floor((nowMs + KST_OFFSET_MS) / DAY_MS) * DAY_MS;
+    const dayStart = kstMidnight - KST_OFFSET_MS;
+    const dayEnd = dayStart + DAY_MS;
+
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('id, date, started_at, finished_at, settings, attempts')
+      .eq('user_id', userId)
+      .gte('finished_at', new Date(dayStart).toISOString())
+      .lt('finished_at', new Date(dayEnd).toISOString());
+    if (error || !data) return [];
+    return (data as SessionRow[]).map((r) => ({
+      id: r.id,
+      date: r.date,
+      startedAt: new Date(r.started_at).getTime(),
+      finishedAt: new Date(r.finished_at).getTime(),
+      settings: r.settings,
+      attempts: r.attempts,
+    }));
+  } catch {
+    return [];
   }
 }
