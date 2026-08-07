@@ -1,7 +1,72 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { QuizSettings, Strategy, Word } from '../types';
 import { byOrder, pickWords } from '../lib/select';
 import { maskPreview } from '../lib/mask';
+
+/**
+ * 제한 시간·문제 수·범위 입력에 공통으로 쓰는 숫자 입력칸.
+ *
+ * 그냥 <input type="number" value={n} onChange={...}>로는 지우는 순간 onChange가
+ * `Number('') || min` 같은 계산으로 즉시 최솟값을 다시 채워 넣어서, 사용자가 완전히
+ * 빈 칸에서 새로 타이핑할 틈이 없다("30을 치려는데 130이 됨"의 진짜 원인). 그래서
+ * 화면에 보이는 문자열은 별도 로컬 상태로 두고, 빈 칸인 동안은 그대로 비워 두다가
+ * 포커스를 벗어날 때만(onBlur) min/max로 정리해서 커밋한다. 타이핑 중에도 숫자로
+ * 유효할 때마다 onCommit을 불러 미리보기(문제 수·범위 단어 칩 등)는 계속 실시간으로
+ * 갱신되게 한다.
+ */
+function NumberField({
+  value,
+  min,
+  max,
+  disabled,
+  onCommit,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  disabled?: boolean;
+  onCommit: (n: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  // 지금 이 칸을 편집 중인 동안은, 스텝퍼 버튼 등으로 바뀐 바깥 값이 타이핑 중인
+  // 문자열을 덮어쓰지 않게 막는다.
+  const editing = useRef(false);
+
+  useEffect(() => {
+    if (!editing.current) setText(String(value));
+  }, [value]);
+
+  function handleChange(raw: string) {
+    editing.current = true;
+    setText(raw);
+    if (raw.trim() === '') return; // 비워 둔 채로는 커밋하지 않는다 — 빈 상태를 유지.
+    const n = Number(raw);
+    if (!Number.isNaN(n)) onCommit(n); // 아직 min/max로 조이지 않는다 — 자리 수를 더 치는 중일 수 있다.
+  }
+
+  function handleBlur() {
+    editing.current = false;
+    const n = Number(text);
+    const clamped = text.trim() === '' || Number.isNaN(n) ? value : Math.min(max, Math.max(min, n));
+    setText(String(clamped));
+    onCommit(clamped);
+  }
+
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={min}
+      max={max}
+      value={text}
+      disabled={disabled}
+      onFocus={(e) => e.target.select()}
+      onChange={(e) => handleChange(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+    />
+  );
+}
 
 const PRESETS: { label: string; ratio: number; hint: string }[] = [
   { label: '쉬움', ratio: 0.4, hint: '40% 공개' },
@@ -157,15 +222,11 @@ export default function SetupScreen({
               <button className="btn ghost sm" onClick={() => patch({ seconds: Math.max(3, s.seconds - 1) })}>
                 −
               </button>
-              <input
-                type="number"
+              <NumberField
                 min={3}
                 max={120}
                 value={s.seconds}
-                onChange={(e) =>
-                  patch({ seconds: Math.min(120, Math.max(3, Number(e.target.value) || 3)) })
-                }
-                onFocus={(e) => e.target.select()}
+                onCommit={(n) => patch({ seconds: n })}
               />
               <button
                 className="btn ghost sm"
@@ -186,14 +247,12 @@ export default function SetupScreen({
               >
                 −10
               </button>
-              <input
-                type="number"
+              <NumberField
                 min={1}
                 max={500}
                 value={s.count}
                 disabled={s.strategy === 'range'}
-                onChange={(e) => patch({ count: Math.max(1, Number(e.target.value) || 1) })}
-                onFocus={(e) => e.target.select()}
+                onCommit={(n) => patch({ count: n })}
               />
               <button
                 className="btn ghost sm"
@@ -248,22 +307,18 @@ export default function SetupScreen({
               {st.value === 'range' && s.strategy === 'range' && (
                 <div className="range-picker">
                   <div className="range-inputs">
-                    <input
-                      type="number"
+                    <NumberField
                       min={1}
                       max={sortedAvailable.length || 1}
                       value={rangeFrom}
-                      onChange={(e) => patch({ rangeFrom: Math.max(1, Number(e.target.value) || 1) })}
-                      onFocus={(e) => e.target.select()}
+                      onCommit={(n) => patch({ rangeFrom: n })}
                     />
                     <span>번째부터</span>
-                    <input
-                      type="number"
+                    <NumberField
                       min={1}
                       max={sortedAvailable.length || 1}
                       value={rangeTo}
-                      onChange={(e) => patch({ rangeTo: Math.max(1, Number(e.target.value) || 1) })}
-                      onFocus={(e) => e.target.select()}
+                      onCommit={(n) => patch({ rangeTo: n })}
                     />
                     <span>번째 단어까지 출제</span>
                   </div>
