@@ -8,6 +8,7 @@ import { judge } from '../../lib/judge';
 import { hintStageAt, progressiveMask } from '../../lib/groupMask';
 import { correctScore, fastestCorrectUserId, rankPlayers } from '../../lib/groupScore';
 import { leaveRoom, leaveRoomBeacon } from '../../lib/groupApi';
+import { playSfx } from '../../lib/sfx';
 import Icon from '../Icon';
 import MaskSlots from '../MaskSlots';
 import TimerBar, { timerStageOf } from '../TimerBar';
@@ -77,6 +78,30 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
       setInput('');
     }
   }, [phase]);
+
+  // 막판 3초 카운트다운음. phase.msLeft는 useLockstep이 100ms마다 다시 계산해 주므로,
+  // 이 효과가 자주 재실행되긴 하지만 tickedRef 가드 덕분에 실제 재생은 라운드당
+  // 정수 초 경계(3, 2, 1)에서 딱 한 번씩만 일어난다.
+  const tickedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (phase.kind !== 'answer') return;
+    const secondsLeft = Math.ceil(phase.msLeft / 1000);
+    if (secondsLeft < 1 || secondsLeft > 3) return;
+    const key = `${phase.index}:${secondsLeft}`;
+    if (tickedRef.current.has(key)) return;
+    tickedRef.current.add(key);
+    playSfx('tick');
+  }, [phase]);
+
+  // reveal로 넘어가는 순간, 내가 이번 라운드에 낸 답의 판정으로 정답/오답 효과음을
+  // 한 번만 울린다. near·wrong·timeout은 솔로 퀴즈와 같은 이유로 구분하지 않는다.
+  const playedRevealRef = useRef(-1);
+  useEffect(() => {
+    if (phase.kind !== 'reveal' || phase.index === playedRevealRef.current) return;
+    playedRevealRef.current = phase.index;
+    const mine = answers.find((a) => a.roundIndex === phase.index && a.userId === userId);
+    if (mine) playSfx(mine.verdict === 'correct' ? 'correct' : 'wrong');
+  }, [phase, answers, userId]);
 
   async function doSubmit(idx: number, value: string, verdict: Verdict) {
     if (pendingRef.current.has(idx)) return;

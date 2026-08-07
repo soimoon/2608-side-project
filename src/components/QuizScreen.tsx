@@ -3,6 +3,7 @@ import type { Attempt, Pronunciation, QuizSettings, Verdict, Word } from '../typ
 import { judge, normalize } from '../lib/judge';
 import { maskWord } from '../lib/mask';
 import { lookupCache, playAudio } from '../lib/pronounce';
+import { playSfx } from '../lib/sfx';
 import PronounceButton from './PronounceButton';
 import MaskSlots from './MaskSlots';
 import TimerBar, { timerStageOf } from './TimerBar';
@@ -93,6 +94,9 @@ export default function QuizScreen({
       // 제출과 시간 초과가 동시에 걸리는 경합을 막는다. 한 문제당 한 번만 기록한다.
       if (answered.current) return;
       answered.current = true;
+      // near·wrong·timeout을 굳이 구분하지 않는다 — 셋 다 "정답이 아니다"라는 점에서
+      // 사용자에게 같은 신호면 충분하다는 판단.
+      playSfx(v === 'correct' ? 'correct' : 'wrong');
 
       const attempt: Attempt = {
         wordId: item.word.id,
@@ -134,12 +138,16 @@ export default function QuizScreen({
   // 있던, 0에 가까울 수도 있는) 값을 그대로 잡아버린다. 그러면 새 문제가 시작하자마자
   // 곧장 시간 초과 처리되는 버그가 난다 — ref는 동기적으로 갱신되므로 이 경쟁을 없앤다.
   const remainingRef = useRef(settings.seconds);
+  /** 이번 문제에서 이미 tick 효과음을 울린 "남은 초" 값들(3, 2, 1). 100ms마다 도는
+   *  카운트다운 틱과 별개로, 정수 초 경계를 넘는 순간 딱 한 번씩만 울리기 위한 기록. */
+  const tickedSecondsRef = useRef<Set<number>>(new Set());
 
   // 새 문제가 시작될 때만 제한 시간을 리셋한다 — 일시중지 토글은 이 효과를 안 건드린다.
   useEffect(() => {
     if (phase !== 'answering') return;
     questionStart.current = performance.now();
     remainingRef.current = settings.seconds;
+    tickedSecondsRef.current = new Set();
     setRemaining(settings.seconds);
   }, [idx, phase, settings.seconds]);
 
@@ -154,6 +162,18 @@ export default function QuizScreen({
       const left = Math.max(0, (deadline - performance.now()) / 1000);
       remainingRef.current = left; // 언제 멈추더라도 최신값을 들고 있게 계속 갱신.
       setRemaining(left);
+
+      // 막판 3초 카운트다운음. 정수 초 경계(3, 2, 1)를 막 넘은 순간 한 번만 울린다.
+      const wholeSecond = Math.ceil(left);
+      if (
+        wholeSecond >= 1 &&
+        wholeSecond <= 3 &&
+        left > 0 &&
+        !tickedSecondsRef.current.has(wholeSecond)
+      ) {
+        tickedSecondsRef.current.add(wholeSecond);
+        playSfx('tick');
+      }
     }, 100);
     const expire = window.setTimeout(() => timeoutHandler.current(), remainingRef.current * 1000);
 
