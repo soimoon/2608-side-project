@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fetchAnswers, fetchPlayers, type RoomAnswer, type RoomPlayer } from '../../lib/groupApi';
 import { rankPlayers } from '../../lib/groupScore';
+import { claimGameReward, CLAIM_NOT_WINNER_MESSAGE } from '../../lib/decorApi';
 import Icon, { type IconName } from '../Icon';
 
 interface Props {
   roomId: string;
   gameNo: number;
+  /** 게스트(익명)면 undefined — 재화가 실계정 전용이라 그때는 보상 수령 시도 자체를 안 한다. */
+  myUserId: string | undefined;
   onBackToRoom: () => void;
 }
 
@@ -20,10 +23,12 @@ const MEDAL: { icon: IconName; rankClass: string }[] = [
  * (화면 전환 후 사라질 수 있는 상태에 기대지 않기 위해) roomId+gameNo로 독립적으로
  * 다시 조회한다 — 방 목록의 "결과 화면"과 같은 패턴이다.
  */
-export default function GroupResultScreen({ roomId, gameNo, onBackToRoom }: Props) {
+export default function GroupResultScreen({ roomId, gameNo, myUserId, onBackToRoom }: Props) {
   const [players, setPlayers] = useState<RoomPlayer[]>([]);
   const [answers, setAnswers] = useState<RoomAnswer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rewardNotice, setRewardNotice] = useState('');
+  const claimedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,14 +43,6 @@ export default function GroupResultScreen({ roomId, gameNo, onBackToRoom }: Prop
       cancelled = true;
     };
   }, [roomId, gameNo]);
-
-  if (loading) {
-    return (
-      <div className="screen">
-        <p className="muted">결과를 불러오는 중…</p>
-      </div>
-    );
-  }
 
   // 게임 도중 나간 사람은 leave_room이 room_players 행을 지워버리지만, 그 전에 낸
   // room_answers는 그대로 남는다. players만 보면 "나가기 전까지 딴 점수"가 통째로
@@ -68,11 +65,47 @@ export default function GroupResultScreen({ roomId, gameNo, onBackToRoom }: Prop
     return `플레이어${missingIds.indexOf(id) + 1}`;
   };
 
+  // 화면에 표시된 순위로 "내가 1등인지"를 먼저 판단한 뒤에만 서버에 물어본다 — 1등이
+  // 아닌 사람(대다수)에게 매번 헛RPC를 안 쏘려는 것. 최종 판정은 어차피 서버가 room_answers를
+  // 직접 재집계해서 하므로(claim_game_reward), 여기 판단이 틀려도 부정 지급으로 이어지진
+  // 않는다 — 그냥 "받을 자격 있는데 시도를 안 하는" 정도의 오차만 가능하고, 그마저도
+  // standings 계산이 서버와 같은 데이터(room_answers)를 보므로 실제로는 안 어긋난다.
+  const iAmRankOne = Boolean(myUserId) && standings.some((s) => s.rank === 1 && s.userId === myUserId);
+
+  useEffect(() => {
+    if (loading || !iAmRankOne || !myUserId || claimedRef.current) return;
+    claimedRef.current = true;
+    void claimGameReward(roomId, gameNo).then((res) => {
+      if (res.ok && res.data) {
+        setRewardNotice(`🎉 1등 보상으로 씨앗 ${res.data}개를 받았습니다!`);
+      } else if (res.error && res.error !== CLAIM_NOT_WINNER_MESSAGE) {
+        // "1등이 아닙니다"는 standings 판정과 서버 판정이 아주 드물게 어긋나는 경우
+        // (동시 도착 등)라 조용히 넘긴다 — 그 밖의 사유(공동 1등·일일 한도 등)는
+        // 실제로 1등인 사람이 왜 못 받는지 궁금해할 만하니 보여준다.
+        setRewardNotice(res.error);
+      }
+    });
+  }, [loading, iAmRankOne, myUserId, roomId, gameNo]);
+
+  if (loading) {
+    return (
+      <div className="screen">
+        <p className="muted">결과를 불러오는 중…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="screen">
       <header className="hero">
         <h1>결과</h1>
       </header>
+
+      {rewardNotice && (
+        <p className="notice-bar" role="status">
+          {rewardNotice}
+        </p>
+      )}
 
       {/* fetchAnswers/fetchPlayers는 실패해도 []를 돌려주므로(방금 방금 끝난 판이라
           일시적으로 못 불러왔거나, network 문제), 빈 목록만 덩그러니 두지 않는다. */}

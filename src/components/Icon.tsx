@@ -10,6 +10,13 @@ import {
   Medal,
   Crown,
   GripVertical,
+  Star,
+  Heart,
+  Moon,
+  Cat,
+  Rabbit,
+  Gem,
+  ShoppingBag,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -27,6 +34,14 @@ const ICONS = {
   medalBronze: Medal,
   crown: Crown,
   grip: GripVertical,
+  // 프로필 꾸미기(아바타 아이템)용 — decorItems.ts의 DecorRender가 이 이름들을 참조한다.
+  star: Star,
+  heart: Heart,
+  moon: Moon,
+  cat: Cat,
+  rabbit: Rabbit,
+  gem: Gem,
+  shop: ShoppingBag,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

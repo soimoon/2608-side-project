@@ -6,6 +6,7 @@ import { useTerms } from './lib/useTerms';
 import { usePresence } from './lib/usePresence';
 import { useFriends } from './lib/useFriends';
 import { useInviteInbox } from './lib/useInviteInbox';
+import { useWallet } from './lib/useWallet';
 import { leaveRoom } from './lib/groupApi';
 import { fetchPronunciations, missingFromCache } from './lib/pronounce';
 import {
@@ -25,6 +26,7 @@ import TermsGate from './components/TermsGate';
 import MergeDialog from './components/MergeDialog';
 import ProfileScreen from './components/ProfileScreen';
 import FriendsScreen from './components/FriendsScreen';
+import DecorShop from './components/DecorShop';
 import InviteModal from './components/InviteModal';
 import WordsHub from './components/WordsHub';
 import DeckListScreen from './components/DeckListScreen';
@@ -42,6 +44,7 @@ import ResultScreen from './components/ResultScreen';
 type Screen =
   | { name: 'profile' }
   | { name: 'friends' }
+  | { name: 'decor' }
   | { name: 'wordsHub' }
   | { name: 'words'; notice?: string }
   | { name: 'deckDetail'; deckName: string }
@@ -85,6 +88,7 @@ function tabOf(name: Screen['name']): Tab {
       return 'group';
     case 'profile':
     case 'friends':
+    case 'decor':
       return 'profile';
   }
 }
@@ -131,6 +135,9 @@ export default function App() {
   usePresence(realUserId, presenceStatus);
   const friends = useFriends(realUserId);
   const inviteInbox = useInviteInbox(realUserId);
+  // 재화도 같은 이유로 실계정 전용 — 게스트가 애써 모은 씨앗이 기기를 바꾸면
+  // 사라지는 걸 막는다.
+  const wallet = useWallet(realUserId);
 
   // 테마는 <html data-theme="..."> 로 CSS에 반영한다. 오프라인에서도 즉시 적용되도록
   // 로컬 db.theme을 정본으로 쓰고, 로그인 상태면 바뀔 때마다 계정에도 올린다.
@@ -462,6 +469,7 @@ export default function App() {
 
   const goWordsHub = useCallback(() => setScreen({ name: 'wordsHub' }), []);
   const goFriends = useCallback(() => setScreen({ name: 'friends' }), []);
+  const goDecor = useCallback(() => setScreen({ name: 'decor' }), []);
   const goWords = useCallback(() => setScreen({ name: 'words' }), []);
   const goDeckDetail = useCallback((deckName: string) => setScreen({ name: 'deckDetail', deckName }), []);
   const goProfile = useCallback(() => setScreen({ name: 'profile' }), []);
@@ -505,10 +513,14 @@ export default function App() {
             onGoWords={goWordsHub}
             friendRequestCount={friends.requests.length}
             onGoFriends={goFriends}
+            wallet={wallet}
+            onGoDecor={goDecor}
           />
         );
       case 'friends':
         return <FriendsScreen friendsState={friends} onBack={goProfile} />;
+      case 'decor':
+        return <DecorShop walletState={wallet} onBack={goProfile} />;
       case 'wordsHub':
         return (
           <WordsHub
@@ -584,6 +596,7 @@ export default function App() {
           <GroupResultScreen
             roomId={screen.roomId}
             gameNo={screen.gameNo}
+            myUserId={realUserId}
             onBackToRoom={() => goRoom(screen.roomId)}
           />
         );
@@ -636,6 +649,8 @@ export default function App() {
     decks,
     sync,
     friends,
+    wallet,
+    realUserId,
     setTheme,
     claim,
     setWords,
@@ -650,6 +665,7 @@ export default function App() {
     cachePronunciations,
     goWordsHub,
     goFriends,
+    goDecor,
     goWords,
     goDeckDetail,
     goProfile,

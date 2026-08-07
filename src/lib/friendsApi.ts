@@ -26,6 +26,8 @@ export interface Friend {
   online: boolean;
   /** 다른 단체게임 방에 신선한 참가자로 들어가 있는지. */
   inGame: boolean;
+  /** 착용 중인 아바타 아이템 id(decorItems.ts). 안 꾸몄으면 null. */
+  avatar: string | null;
 }
 
 export interface FriendRequest {
@@ -138,6 +140,7 @@ interface ListFriendRow {
   display_name: string;
   online: boolean;
   in_game: boolean;
+  avatar: string | null;
 }
 
 export async function listFriends(): Promise<Friend[]> {
@@ -150,6 +153,7 @@ export async function listFriends(): Promise<Friend[]> {
       displayName: r.display_name,
       online: r.online,
       inGame: r.in_game,
+      avatar: r.avatar,
     }));
   } catch {
     return [];

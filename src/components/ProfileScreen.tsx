@@ -13,8 +13,10 @@ import {
 import type { CloudSync } from '../lib/useCloudSync';
 import { isRealSession } from '../lib/useCloudSync';
 import { useNickname } from '../lib/useNickname';
+import type { UseWalletResult } from '../lib/useWallet';
 import SettingsModal from './SettingsModal';
 import Icon from './Icon';
+import Avatar from './Avatar';
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -51,6 +53,10 @@ interface Props {
   /** 받은 친구 요청 수 — 배지로 표시. 게스트 계정이면 App.tsx가 이 자체를 안 넘긴다. */
   friendRequestCount: number;
   onGoFriends: () => void;
+  /** 게스트면 App.tsx의 useWallet이 잠들어 있어 balance/equipped가 전부 빈 값이다 —
+   *  그래도 훅 자체는 항상 호출되므로 여기선 항상 넘어온다(진입 버튼만 실계정에서 숨김). */
+  wallet: UseWalletResult;
+  onGoDecor: () => void;
 }
 
 function todayKey(): string {
@@ -84,6 +90,8 @@ export default function ProfileScreen({
   onGoWords,
   friendRequestCount,
   onGoFriends,
+  wallet,
+  onGoDecor,
 }: Props) {
   const now = Date.now();
   const today = kstDateKey(now);
@@ -211,7 +219,18 @@ export default function ProfileScreen({
         </button>
       )}
 
+      {/* 재화도 친구와 같은 이유로 실계정 전용(게스트는 진입점 자체를 숨김) — 게스트가
+          기기를 바꾸면 사라질 씨앗을 애써 모으게 하지 않는다. */}
+      {isRealSession(sync.session) && (
+        <button className="row nickname-row friends-entry" onClick={onGoDecor}>
+          <span className="muted">꾸미기</span>
+          <Avatar itemId={wallet.equipped.avatar} size="sm" />
+          <span className="friends-entry-label">씨앗 {wallet.wallet.balance}개</span>
+        </button>
+      )}
+
       <header className="hero">
+        {isRealSession(sync.session) && <Avatar itemId={wallet.equipped.avatar} size="lg" />}
         <h1>{nicknameSet && nickname ? `${nickname}님` : '프로필'}</h1>
       </header>
 

@@ -1236,6 +1236,283 @@ grant execute on function list_invitable_friends(uuid) to authenticated;
 grant execute on function invite_friend(uuid, uuid) to authenticated;
 grant execute on function respond_invite(bigint, boolean, boolean) to authenticated;
 
+-- ============================================================================
+-- 재화(씨앗)와 프로필 꾸미기
+-- ============================================================================
+-- 이미 위 스키마로 프로젝트를 만들어 둔 상태라면, 이 구분선 아래만 통째로 복사해
+-- SQL Editor에서 실행하면 된다.
+--
+-- 설계 원칙: **잔액을 저장하지 않는다.** 적립·구매 내역만 append-only로 쌓고
+-- (reward_grants) 잔액은 그때그때 SUM으로 계산한다. daily_claims/revival_events가
+-- 이미 쓰는 "여러 기기 간엔 합집합/합계로 병합" 원칙과 같다 — mutable 잔액을
+-- 두면 last-write-wins 경쟁이 생기지만, append-only 내역 + 합계는 순서가 어떻게
+-- 섞여도 항상 같은 값으로 수렴한다.
+
+-- ---------- profiles에 착용 칸 2개 ----------
+-- profiles.theme과 정확히 같은 패턴(단일 mutable 값) — 이미 검증된 방식이다.
+alter table profiles add column if not exists equipped_avatar text;
+alter table profiles add column if not exists equipped_background text;
+
+-- ---------- reward_grants (적립·구매 내역, append-only) ----------
+-- kind: 'mission'(미션·출석 보상) | 'game_win'(단체게임 1등) | 'purchase'(꾸미기 구매,
+-- amount는 음수). ref_id는 kind별로 의미가 다르다 — mission은 '<date>:<claim_kind>',
+-- game_win은 '<room_id>:<game_no>', purchase는 item_id. PK 하나가 세 가지 중복을
+-- 동시에 막는다: 같은 미션 두 번 지급, 같은 판 1등 두 번 지급(결과 화면 새로고침
+-- 대비), 같은 아이템 두 번 구매.
+create table if not exists reward_grants (
+  user_id uuid not null references auth.users on delete cascade,
+  kind text not null,
+  ref_id text not null,
+  amount int not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, kind, ref_id)
+);
+
+create index if not exists reward_grants_user on reward_grants (user_id);
+
+alter table reward_grants enable row level security;
+create policy "reward_grants_select_own" on reward_grants
+  for select using (user_id = auth.uid());
+-- insert 정책 없음 — 아래 트리거(security definer)와 RPC들만 쓴다.
+
+-- ---------- mission_rewards (kind → 보상액 조회 테이블) ----------
+-- daily_claims.kind가 늘어날 때마다(3단계에서 미션 4종 추가) 트리거 함수를 다시
+-- 고치지 않아도 되게, 보상액을 코드가 아니라 데이터로 뺐다. 새 미션을 추가할 땐
+-- 이 표에 행만 하나 더 insert하면 된다.
+create table if not exists mission_rewards (
+  kind text primary key,
+  amount int not null check (amount > 0)
+);
+
+insert into mission_rewards (kind, amount) values
+  ('attendance', 5),
+  ('mission_revive', 10)
+on conflict (kind) do update set amount = excluded.amount;
+
+-- daily_claims에 새 행이 들어오면(=미션/출석 보상을 "받았음" 표시) 곧바로 씨앗을
+-- 지급한다. 클라이언트의 pushDailyClaim은 한 글자도 안 바뀌어도 되고, 오프라인에서
+-- 받은 보상이 나중에 동기화될 때도 이 트리거가 그 순간 자동으로 지급한다.
+-- mission_rewards에 없는 kind(미래에 지급 대상이 아닌 kind가 추가될 경우)는
+-- 조용히 무시한다 — 강제로 막지 않아 하위 호환이 깨지지 않는다.
+create or replace function grant_daily_claim_reward() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare amt int;
+begin
+  select amount into amt from mission_rewards where kind = new.kind;
+  if amt is null then return new; end if;
+
+  insert into reward_grants (user_id, kind, ref_id, amount)
+  values (new.user_id, 'mission', new.date::text || ':' || new.kind, amt)
+  on conflict do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists daily_claims_grant_reward on daily_claims;
+create trigger daily_claims_grant_reward
+  after insert on daily_claims
+  for each row execute function grant_daily_claim_reward();
+
+-- ---------- decor_items (꾸미기 카탈로그 — 가격 검증 전용) ----------
+-- 실제 그리는 방식(그라디언트·아이콘 등)은 서버가 몰라도 된다 — src/data/decorItems.ts
+-- 의 클라이언트 레지스트리가 담당한다. 서버는 "이 id가 존재하고 얼마인지"만 안다,
+-- 구매 금액을 클라이언트가 정하게 두면 안 되기 때문이다.
+-- ⚠️ 아이템을 추가/가격을 바꿀 땐 이 표와 decorItems.ts 양쪽을 같이 고칠 것 —
+-- id·가격이 어긋나면 상점 화면 표시가와 실제 차감액이 달라진다.
+create table if not exists decor_items (
+  id text primary key,
+  slot text not null check (slot in ('avatar', 'background')),
+  price int not null check (price > 0)
+);
+
+insert into decor_items (id, slot, price) values
+  ('avatar-star', 'avatar', 30),
+  ('avatar-heart', 'avatar', 30),
+  ('avatar-cat', 'avatar', 50),
+  ('avatar-rabbit', 'avatar', 50),
+  ('avatar-moon', 'avatar', 80),
+  ('avatar-gem', 'avatar', 120),
+  ('bg-sunrise', 'background', 40),
+  ('bg-ocean', 'background', 40),
+  ('bg-meadow', 'background', 70),
+  ('bg-dusk', 'background', 100)
+on conflict (id) do update set slot = excluded.slot, price = excluded.price;
+
+alter table decor_items enable row level security;
+create policy "decor_items_select_all" on decor_items for select using (true);
+-- 가격은 공개 정보라 select는 전부 열어 둔다. insert/update는 이 파일의 문장으로만.
+
+-- ---------- 재화·꾸미기: RPC ----------
+
+/** 잔액 + 보유한 꾸미기 아이템 id 목록. */
+create or replace function get_wallet()
+returns table (balance int, owned_items text[])
+language sql stable security definer set search_path = public as $$
+  select
+    coalesce((select sum(amount) from reward_grants where user_id = auth.uid()), 0)::int,
+    coalesce(
+      (select array_agg(ref_id) from reward_grants where user_id = auth.uid() and kind = 'purchase'),
+      '{}'
+    );
+$$;
+
+create or replace function purchase_item(p_item_id text) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  item decor_items;
+  balance int;
+begin
+  select * into item from decor_items where id = p_item_id;
+  if item is null then raise exception 'ITEM_NOT_FOUND'; end if;
+
+  if exists (
+    select 1 from reward_grants
+    where user_id = auth.uid() and kind = 'purchase' and ref_id = p_item_id
+  ) then
+    raise exception 'ALREADY_OWNED';
+  end if;
+
+  select coalesce(sum(amount), 0) into balance from reward_grants where user_id = auth.uid();
+  if balance < item.price then raise exception 'NOT_ENOUGH_SEEDS'; end if;
+
+  insert into reward_grants (user_id, kind, ref_id, amount)
+  values (auth.uid(), 'purchase', p_item_id, -item.price);
+end;
+$$;
+
+/** p_item_id가 null이면 그 칸을 벗는다(기본 상태로). */
+create or replace function equip_item(p_slot text, p_item_id text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_slot not in ('avatar', 'background') then raise exception 'BAD_SLOT'; end if;
+
+  if p_item_id is not null then
+    if not exists (select 1 from decor_items where id = p_item_id and slot = p_slot) then
+      raise exception 'BAD_ITEM';
+    end if;
+    if not exists (
+      select 1 from reward_grants
+      where user_id = auth.uid() and kind = 'purchase' and ref_id = p_item_id
+    ) then
+      raise exception 'NOT_OWNED';
+    end if;
+  end if;
+
+  if p_slot = 'avatar' then
+    update profiles set equipped_avatar = p_item_id where id = auth.uid();
+  else
+    update profiles set equipped_background = p_item_id where id = auth.uid();
+  end if;
+end;
+$$;
+
+/**
+ * 단체게임 1등 보상. GroupResultScreen 진입 시 호출한다. 어뷰징 방어(전부 서버에서
+ * 재검증 — 클라이언트가 "내가 1등"이라고 주장하는 경로를 만들지 않는다):
+ *   - 그 판이 실제로 끝났고(finished_at) game_no가 맞아야 함
+ *   - 10라운드 이상
+ *   - 3명 이상 참여(room_answers 기준)
+ *   - 1등은 room_answers 합계로 서버가 직접 계산 — 공동 1등이면 아무도 안 받음
+ *     (분쟁 소지를 없애는 단순한 규칙)
+ *   - 하루 5회까지만(KST 기준)
+ * reward_grants의 PK(user_id, kind, ref_id)가 같은 판 중복 지급을 추가로 막아준다
+ * (결과 화면을 새로고침해도 두 번 안 들어옴).
+ */
+create or replace function claim_game_reward(p_room_id uuid, p_game_no int) returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  r game_rooms;
+  today_kst date := (now() at time zone 'Asia/Seoul')::date;
+  todays_wins int;
+  participant_count int;
+  word_count int;
+  winner_id uuid;
+  tie_count int;
+  reward_amount constant int := 20;
+begin
+  select * into r from game_rooms where id = p_room_id;
+  if r is null or r.finished_at is null or r.game_no <> p_game_no then
+    raise exception 'GAME_NOT_FINISHED';
+  end if;
+
+  word_count := coalesce(jsonb_array_length(r.words), 0);
+  if word_count < 10 then raise exception 'NOT_ENOUGH_ROUNDS'; end if;
+
+  select count(distinct user_id) into participant_count
+    from room_answers where room_id = p_room_id and game_no = p_game_no;
+  if participant_count < 3 then raise exception 'NOT_ENOUGH_PLAYERS'; end if;
+
+  with totals as (
+    select user_id, sum(points) as total
+    from room_answers
+    where room_id = p_room_id and game_no = p_game_no
+    group by user_id
+  ),
+  ranked as (
+    select user_id, rank() over (order by total desc) as rnk
+    from totals
+  ),
+  winners as (
+    select user_id from ranked where rnk = 1
+  )
+  select (select user_id from winners limit 1), (select count(*) from winners)
+    into winner_id, tie_count;
+
+  if tie_count > 1 then raise exception 'TIE_NO_WINNER'; end if;
+  if winner_id is distinct from auth.uid() then raise exception 'NOT_WINNER'; end if;
+
+  select count(*) into todays_wins
+    from reward_grants
+    where user_id = auth.uid() and kind = 'game_win'
+      and (created_at at time zone 'Asia/Seoul')::date = today_kst;
+  if todays_wins >= 5 then raise exception 'DAILY_LIMIT'; end if;
+
+  insert into reward_grants (user_id, kind, ref_id, amount)
+  values (auth.uid(), 'game_win', p_room_id::text || ':' || p_game_no, reward_amount)
+  on conflict (user_id, kind, ref_id) do nothing;
+
+  return reward_amount;
+end;
+$$;
+
+revoke execute on function get_wallet() from public;
+revoke execute on function purchase_item(text) from public;
+revoke execute on function equip_item(text, text) from public;
+revoke execute on function claim_game_reward(uuid, int) from public;
+
+grant execute on function get_wallet() to authenticated;
+grant execute on function purchase_item(text) to authenticated;
+grant execute on function equip_item(text, text) to authenticated;
+grant execute on function claim_game_reward(uuid, int) to authenticated;
+
+-- ---------- list_friends()에 착용 아바타 얹기 ----------
+-- 반환 테이블의 컬럼 구성이 바뀌므로 create or replace만으로는 안 되고 먼저
+-- 지워야 한다(Postgres는 RETURNS TABLE 모양이 다르면 교체를 거부한다).
+drop function if exists list_friends();
+
+create or replace function list_friends()
+returns table (user_id uuid, display_name text, online boolean, in_game boolean, avatar text)
+language sql stable security definer set search_path = public as $$
+  select
+    f.friend_id,
+    p.display_name,
+    coalesce(p.last_seen_at > now() - interval '30 seconds', false),
+    exists (
+      select 1 from room_players rp
+      where rp.user_id = f.friend_id and rp.last_seen_at > now() - interval '60 seconds'
+    ),
+    p.equipped_avatar
+  from friends f
+  join profiles p on p.id = f.friend_id
+  where f.user_id = auth.uid()
+  order by coalesce(p.last_seen_at > now() - interval '30 seconds', false) desc,
+           lower(p.display_name)
+  limit 200;
+$$;
+
+revoke execute on function list_friends() from public;
+grant execute on function list_friends() to authenticated;
+
 -- ---------- 마이그레이션: words.ko  text → text[] ----------
 -- 이미 이 스키마로 프로젝트를 만들어서 words.ko가 text 컬럼인 상태라면, 위 CREATE TABLE은
 -- "if not exists"라 조용히 무시되고 컬럼 타입은 안 바뀐다. 아래를 한 번만 따로 실행한다.

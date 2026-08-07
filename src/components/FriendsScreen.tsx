@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { type FriendSearchResult, searchUsers, sendFriendRequest } from '../lib/friendsApi';
 import type { UseFriendsResult } from '../lib/useFriends';
 import Icon from './Icon';
+import Avatar from './Avatar';
 
 interface Props {
   friendsState: UseFriendsResult;
@@ -147,6 +148,7 @@ export default function FriendsScreen({ friendsState, onBack }: Props) {
           <ul className="player-list">
             {friends.map((f) => (
               <li key={f.userId} className="player-row">
+                <Avatar itemId={f.avatar} size="sm" />
                 <span className={`player-dot ${f.online ? 'online' : 'offline'}`} aria-hidden />
                 <span className="player-name">{f.displayName}</span>
                 <span className="muted player-source">

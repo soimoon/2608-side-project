@@ -587,6 +587,11 @@ input[type='radio'] {
   margin: 8px 0 0;
   color: var(--muted);
 }
+/* .hero는 text-align:center라 inline-flex인 .avatar도 같이 가운데 정렬된다 —
+   h1이 block이라 자연히 그 위 줄에 놓인다. */
+.hero .avatar {
+  margin-bottom: 10px;
+}
 
 .stat-grid {
   display: grid;
@@ -1429,6 +1434,99 @@ input[type='radio'] {
 }
 .badge-next {
   font-size: 0.72rem;
+}
+
+/* ---------- 프로필 꾸미기: 아바타 + 상점 ---------- */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #2b2b2b;
+  flex-shrink: 0;
+}
+.avatar svg {
+  stroke: currentColor;
+}
+.avatar-sm {
+  width: 28px;
+  height: 28px;
+}
+.avatar-sm svg {
+  width: 16px;
+  height: 16px;
+}
+.avatar-md {
+  width: 48px;
+  height: 48px;
+}
+.avatar-md svg {
+  width: 26px;
+  height: 26px;
+}
+.avatar-lg {
+  width: 84px;
+  height: 84px;
+}
+.avatar-lg svg {
+  width: 44px;
+  height: 44px;
+}
+.avatar-lg img,
+.avatar-md img,
+.avatar-sm img {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.wallet-balance {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+.wallet-balance .badge-icon {
+  font-size: 1.1rem;
+}
+
+.decor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+.decor-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+}
+.decor-item.equipped {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.decor-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.decor-swatch {
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+}
+.decor-item-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.decor-item-price {
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
 /* ---------- 단체게임: 방 목록 ---------- */
