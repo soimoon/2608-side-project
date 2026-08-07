@@ -131,8 +131,16 @@ export interface SyncCursor {
   userId?: string;
 }
 
-/** daily_claims.kind와 1:1로 대응. 새 미션이 생기면 여기에 값만 추가하면 된다. */
-export type ClaimKind = 'attendance' | 'mission_revive';
+/** daily_claims.kind와 1:1로 대응. 새 미션이 생기면 여기에 값만 추가하면 된다
+ *  (스키마 변경 없음 — kind는 text 컬럼). supabase/schema.sql의 mission_rewards
+ *  표와 src/lib/attendance.ts의 MISSIONS 레지스트리에도 같이 추가할 것. */
+export type ClaimKind =
+  | 'attendance'
+  | 'mission_revive'
+  | 'mission_volume'
+  | 'mission_add'
+  | 'mission_accuracy'
+  | 'mission_group';
 
 /** 휴지통에 담긴 단어장 하나. 실수로 지운 걸 복원할 수 있게, 삭제해도 바로 못 없앤다. */
 export interface DeletedDeck {

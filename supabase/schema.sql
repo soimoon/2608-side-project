@@ -1284,9 +1284,16 @@ create table if not exists mission_rewards (
   amount int not null check (amount > 0)
 );
 
+-- 값은 src/lib/attendance.ts의 MISSIONS 레지스트리 표시값과 반드시 같아야 한다 —
+-- 화면에 보이는 보상액과 실제 지급액이 다르면 안 된다(꾸미기 아이템의 decor_items
+-- 표와 정확히 같은 이유). 새 미션을 추가할 땐 두 곳을 같이 고칠 것.
 insert into mission_rewards (kind, amount) values
   ('attendance', 5),
-  ('mission_revive', 10)
+  ('mission_revive', 10),
+  ('mission_volume', 10),
+  ('mission_add', 10),
+  ('mission_accuracy', 15),
+  ('mission_group', 15)
 on conflict (kind) do update set amount = excluded.amount;
 
 -- daily_claims에 새 행이 들어오면(=미션/출석 보상을 "받았음" 표시) 곧바로 씨앗을
@@ -1312,6 +1319,25 @@ drop trigger if exists daily_claims_grant_reward on daily_claims;
 create trigger daily_claims_grant_reward
   after insert on daily_claims
   for each row execute function grant_daily_claim_reward();
+
+-- "단체게임 1판 완주" 미션의 진행률. room_answers는 append-only라 내가 그 판에서
+-- 답을 하나라도 냈다는 증거이고, game_rooms.finished_at이 오늘(KST)이면 그 판이
+-- 오늘 끝난 것이다. 새 테이블 없이 기존 두 테이블만 조인해서 파생시킨다 —
+-- 1등 보상(claim_game_reward)과 달리 정원·라운드 수 조건은 없다(그냥 한 판
+-- 끝까지 참여했으면 된다는 미션이라 더 관대하게 잡았다).
+create or replace function today_group_finishes()
+returns int
+language sql stable security definer set search_path = public as $$
+  select count(distinct (ra.room_id, ra.game_no))::int
+  from room_answers ra
+  join game_rooms r on r.id = ra.room_id and r.game_no = ra.game_no
+  where ra.user_id = auth.uid()
+    and r.finished_at is not null
+    and (r.finished_at at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date;
+$$;
+
+revoke execute on function today_group_finishes() from public;
+grant execute on function today_group_finishes() to authenticated;
 
 -- ---------- decor_items (꾸미기 카탈로그 — 가격 검증 전용) ----------
 -- 실제 그리는 방식(그라디언트·아이콘 등)은 서버가 몰라도 된다 — src/data/decorItems.ts

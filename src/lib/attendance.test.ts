@@ -6,9 +6,12 @@ import {
   hasClaimed,
   kstDateKey,
   revivedWordCount,
+  todayAddedWordCount,
+  todayBestAccuracy,
+  todaySolvedCount,
   totalCorrect,
 } from './attendance';
-import type { Word } from '../types';
+import type { Attempt, SessionResult, Word } from '../types';
 
 function word(over: Partial<Word['stats']>): Word {
   return {
@@ -19,6 +22,45 @@ function word(over: Partial<Word['stats']>): Word {
     createdAt: 0,
     updatedAt: 0,
     stats: { seen: 0, correct: 0, wrong: 0, streak: 0, ...over },
+  };
+}
+
+/** todayAddedWordCount 전용 — 위 word()는 stats만 오버라이드하므로 createdAt이 필요한
+ *  이 블록에서만 별도로 둔다. */
+function wordAt(createdAt: number): Word {
+  return { ...word({}), createdAt };
+}
+
+function attempt(over: Partial<Attempt>): Attempt {
+  return {
+    wordId: 'w',
+    en: 'w',
+    ko: ['뜻'],
+    input: 'w',
+    verdict: 'correct',
+    elapsedMs: 1000,
+    requeued: false,
+    ...over,
+  };
+}
+
+function session(finishedAt: number, attempts: Attempt[]): SessionResult {
+  return {
+    id: 's',
+    date: '2026-01-01',
+    startedAt: finishedAt - 1000,
+    finishedAt,
+    settings: {
+      decks: [],
+      count: 10,
+      hintRatio: 0.2,
+      seconds: 10,
+      strategy: 'weak',
+      retypeOnMiss: true,
+      requeueWrong: true,
+      autoPlayAudio: true,
+    },
+    attempts,
   };
 }
 
@@ -112,6 +154,75 @@ describe('totalCorrect', () => {
   it('전체 단어의 correct를 합산한다', () => {
     const words = [word({ correct: 3 }), word({ correct: 5 }), word({ correct: 0 })];
     expect(totalCorrect(words)).toBe(8);
+  });
+});
+
+describe('todaySolvedCount', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it('오늘(KST) 끝난 세션의 시도 수를 합산한다(재출제 포함)', () => {
+    const now = Date.UTC(2026, 7, 4, 3, 0, 0);
+    const sessions = [
+      session(now, [attempt({}), attempt({ requeued: true })]),
+      session(now - DAY, [attempt({}), attempt({}), attempt({})]), // 어제 — 제외
+    ];
+    expect(todaySolvedCount(sessions, now)).toBe(2);
+  });
+
+  it('KST 자정 경계를 넘긴 세션은 오늘 걸로 잡힌다', () => {
+    // 2026-01-01 15:00 UTC = 2026-01-02 00:00 KST
+    const finishedAt = Date.UTC(2026, 0, 1, 15, 0, 0);
+    const now = finishedAt; // 같은 순간을 "지금"으로
+    const sessions = [session(finishedAt, [attempt({})])];
+    expect(todaySolvedCount(sessions, now)).toBe(1);
+  });
+
+  it('오늘 끝난 세션이 없으면 0', () => {
+    expect(todaySolvedCount([], Date.now())).toBe(0);
+  });
+});
+
+describe('todayAddedWordCount', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it('오늘(KST) 등록한 단어만 센다', () => {
+    const now = Date.UTC(2026, 7, 4, 3, 0, 0);
+    const words = [wordAt(now), wordAt(now - 1000), wordAt(now - DAY)];
+    expect(todayAddedWordCount(words, now)).toBe(2);
+  });
+
+  it('단어가 없으면 0', () => {
+    expect(todayAddedWordCount([], Date.now())).toBe(0);
+  });
+});
+
+describe('todayBestAccuracy', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it('오늘 세션 중 가장 높은 정답률을 백분율로 돌려준다', () => {
+    const now = Date.UTC(2026, 7, 4, 3, 0, 0);
+    const sessions = [
+      session(now, [attempt({ verdict: 'correct' }), attempt({ verdict: 'wrong' })]), // 50%
+      session(now, [attempt({ verdict: 'correct' }), attempt({ verdict: 'correct' })]), // 100%
+      session(now - DAY, [attempt({ verdict: 'correct' })]), // 어제 — 제외
+    ];
+    expect(todayBestAccuracy(sessions, now)).toBe(100);
+  });
+
+  it('재출제 시도는 정답률 계산에서 뺀다', () => {
+    const now = Date.UTC(2026, 7, 4, 3, 0, 0);
+    const sessions = [
+      session(now, [
+        attempt({ verdict: 'wrong', requeued: false }),
+        // 재출제를 그대로 셌다면 정답률이 50%로 나왔을 것 — 빠져야 0%.
+        attempt({ verdict: 'correct', requeued: true }),
+      ]),
+    ];
+    expect(todayBestAccuracy(sessions, now)).toBe(0);
+  });
+
+  it('오늘 세션이 없으면 0', () => {
+    expect(todayBestAccuracy([], Date.now())).toBe(0);
   });
 });
 

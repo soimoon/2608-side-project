@@ -658,3 +658,16 @@ export async function finishGame(roomId: string): Promise<void> {
     /* no-op */
   }
 }
+
+/** "단체게임 1판 완주" 미션 진행률(오늘 KST 기준). 실패하면 0 — 미션 카드가
+ *  진행률 0으로 보일 뿐 화면이 깨지지는 않는다. */
+export async function fetchTodayGroupFinishes(): Promise<number> {
+  if (!supabase) return 0;
+  try {
+    const { data, error } = await supabase.rpc('today_group_finishes');
+    if (error || data === null) return 0;
+    return data as number;
+  } catch {
+    return 0;
+  }
+}

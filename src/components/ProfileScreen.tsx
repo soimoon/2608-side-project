@@ -2,17 +2,21 @@ import { useMemo, useState } from 'react';
 import type { ClaimKind, SessionResult, Theme, Word } from '../types';
 import {
   BADGES,
-  MISSION_TARGET,
+  MISSIONS,
   attendanceStreak,
   currentTier,
   hasClaimed,
   kstDateKey,
   revivedWordCount,
+  todayAddedWordCount,
+  todayBestAccuracy,
+  todaySolvedCount,
   totalCorrect,
 } from '../lib/attendance';
 import type { CloudSync } from '../lib/useCloudSync';
 import { isRealSession } from '../lib/useCloudSync';
 import { useNickname } from '../lib/useNickname';
+import { useGroupMissionProgress } from '../lib/useGroupMissionProgress';
 import type { UseWalletResult } from '../lib/useWallet';
 import SettingsModal from './SettingsModal';
 import Icon from './Icon';
@@ -114,9 +118,18 @@ export default function ProfileScreen({
   const attendedToday = hasClaimed(dailyClaims, today, 'attendance');
   const attendStreak = attendanceStreak(dailyClaims, 'attendance', now);
 
-  const missionProgress = dailyMission.date === today ? dailyMission.revivedWordIds.length : 0;
-  const missionDone = missionProgress >= MISSION_TARGET;
-  const missionClaimed = hasClaimed(dailyClaims, today, 'mission_revive');
+  // 단체게임 진행률만 로컬에 없어(기록이 서버 room_answers에만 있다) 서버에 물어본다.
+  // 게스트도 그대로 쓴다 — 씨앗 지급 자체가 세션 종류를 안 가리므로 다른 미션 3종과
+  // 다르게 취급할 이유가 없다(useGroupMissionProgress 주석 참고).
+  const groupMissionProgress = useGroupMissionProgress(sync.session?.user.id);
+
+  const missionProgressByKind: Record<keyof typeof MISSIONS, number> = {
+    mission_revive: dailyMission.date === today ? dailyMission.revivedWordIds.length : 0,
+    mission_volume: todaySolvedCount(history, now),
+    mission_add: todayAddedWordCount(words, now),
+    mission_accuracy: todayBestAccuracy(history, now),
+    mission_group: groupMissionProgress,
+  };
 
   const monthGrid = useMemo(() => buildMonthGrid(now), [now]);
   const monthLabel = useMemo(() => {
@@ -307,23 +320,39 @@ export default function ProfileScreen({
       </section>
 
       <section className="card">
-        <h3>오늘의 미션 — 오답 부활전</h3>
-        <p className="muted">예전에 틀렸던 단어를 오늘 다시 맞혀 보세요.</p>
-        <div className="mission-bar">
-          <div
-            className="mission-bar-fill"
-            style={{ transform: `scaleX(${Math.min(1, missionProgress / MISSION_TARGET)})` }}
-          />
+        <h3>오늘의 미션</h3>
+        <div className="mission-list">
+          {Object.values(MISSIONS).map((m) => {
+            const progress = missionProgressByKind[m.key];
+            const done = progress >= m.target;
+            const claimed = hasClaimed(dailyClaims, today, m.key);
+            return (
+              <div key={m.key} className="mission-item">
+                <div className="mission-item-head">
+                  <Icon name={m.icon} />
+                  <span className="mission-item-label">{m.label}</span>
+                  <span className="muted mission-item-reward">씨앗 {m.reward}개</span>
+                </div>
+                <p className="muted mission-item-desc">{m.description}</p>
+                <div className="mission-bar">
+                  <div
+                    className="mission-bar-fill"
+                    style={{ transform: `scaleX(${Math.min(1, progress / m.target)})` }}
+                  />
+                </div>
+                <p className="mission-count">
+                  {Math.min(progress, m.target)} / {m.target}
+                </p>
+                {done && !claimed && (
+                  <button className="btn primary sm" onClick={() => onClaim(m.key)}>
+                    보상 받기
+                  </button>
+                )}
+                {claimed && <p className="today-note">오늘 미션 완료</p>}
+              </div>
+            );
+          })}
         </div>
-        <p className="mission-count">
-          {Math.min(missionProgress, MISSION_TARGET)} / {MISSION_TARGET}
-        </p>
-        {missionDone && !missionClaimed && (
-          <button className="btn primary" onClick={() => onClaim('mission_revive')}>
-            보상 받기
-          </button>
-        )}
-        {missionClaimed && <p className="today-note">오늘 미션 완료</p>}
       </section>
 
       <section className="card">

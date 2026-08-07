@@ -1392,6 +1392,43 @@ input[type='radio'] {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.mission-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.mission-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.mission-item:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+.mission-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mission-item-head svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+.mission-item-label {
+  font-weight: 700;
+  flex: 1;
+}
+.mission-item-reward {
+  font-size: 0.8rem;
+}
+.mission-item-desc {
+  margin: 0;
+  font-size: 0.85rem;
+}
 
 /* ---------- 프로필: 배지 ---------- */
 .badge-grid {
