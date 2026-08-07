@@ -53,6 +53,11 @@ interface MwPrs {
   sound?: { audio?: string };
 }
 
+/** 동형이의어(예: "account"의 명사/동사)가 발음을 공유할 때, 실제 prs 대신 이걸
+ *  쓰는 경우가 있다(예: "account for"의 동사 항목). prs와 형태가 같아 그대로
+ *  pickPronunciation에 넣을 수 있다. */
+type MwAltPrs = MwPrs;
+
 interface MwVariant {
   /** 대체 철자 (예: 영국식 "synthesise"). "*"로 음절이 구분된다. */
   va?: string;
@@ -68,13 +73,37 @@ interface MwInflection {
   prs?: MwPrs[];
 }
 
+/** "undefined run-on" — -ly/-ness처럼 규칙적으로 파생됐지만 뜻을 따로 정의할 필요는
+ *  없는 파생어를, MW가 별도 표제어 대신 본표제어 항목 끝에 덧붙이는 방식. ins(굴절형)와
+ *  달리 실제 MW 응답에서 successively/irrevocably류가 여기 실린다 — 그리고 ins와 달리
+ *  거의 항상 자기 자신의 발음(prs)을 갖고 있다(실제로 확인: irrevocably는 irrevocable과
+ *  다른 음원 파일을 쓴다). */
+interface MwRunOn {
+  /** 파생형 표기. 음절 구분에 "*"를 쓴다(표제어와 동일한 관례). */
+  ure?: string;
+  prs?: MwPrs[];
+}
+
+/** "defined run-on" — account for/depend on/stamp out 같은 구동사·숙어를, MW가 별도
+ *  표제어 대신 본표제어 항목 끝에 뜻풀이와 함께 덧붙이는 방식. uros와 이름이 비슷하지만
+ *  이쪽은 뜻이 있는(defined) 숙어용이다. 실제 응답으로 확인한 바, 자체 발음(prs)을
+ *  가진 경우가 거의 없다 — 구동사 발음이 구성 단어와 다르지 않기 때문으로 보인다.
+ *  그래서 ins처럼 표제어 발음을 baseWord와 함께 폴백으로 준다. */
+interface MwRunOnPhrase {
+  /** 숙어 표기. "on/upon"처럼 "/"로 대체 형태를 함께 싣기도 한다("depend on/upon"). */
+  drp?: string;
+  prs?: MwPrs[];
+}
+
 interface MwEntry {
   meta?: { id?: string };
-  hwi?: { hw?: string; prs?: MwPrs[] };
+  hwi?: { hw?: string; prs?: MwPrs[]; altprs?: MwAltPrs[] };
   /** 철자 변형. 미국/영국 철자 차이(-ize/-ise 등)가 있는 단어는 본표제어 자리(hwi.prs)가
    *  비어 있고 여기에만 발음이 실리는 경우가 실제로 많다 (MW 응답으로 직접 확인). */
   vrs?: MwVariant[];
   ins?: MwInflection[];
+  uros?: MwRunOn[];
+  dros?: MwRunOnPhrase[];
 }
 
 /** 표제어를 비교 가능한 형태로. MW는 음절 구분에 "*"를 쓴다 ("syn*the*size"). */
@@ -83,6 +112,31 @@ function headwordOf(entry: MwEntry): string {
   if (hw) return hw.trim().toLowerCase();
   // hw가 없으면 meta.id로 대체. 동형이의어는 "battle:2"처럼 뒤에 번호가 붙는다.
   return (entry.meta?.id ?? '').split(':')[0].trim().toLowerCase();
+}
+
+/** 표제어 자신의 발음 후보(본표제어 prs + altprs + 철자 변형 vrs.prs)를 모은다.
+ *  ins/uros/dros가 자체 발음이 없을 때 원형 폴백으로 쓰는 후보와 완전히 같아서
+ *  한 곳에 모아 둔다. */
+function headwordCandidates(entry: MwEntry): MwPrs[] {
+  return [
+    ...(entry.hwi?.prs ?? []),
+    ...(entry.hwi?.altprs ?? []),
+    ...(entry.vrs ?? []).flatMap((v) => v.prs ?? []),
+  ];
+}
+
+/** "on/upon"처럼 "/"로 대체 형태를 묶어 쓴 표기를 개별 문자열로 펼친다.
+ *  "depend on/upon" → ["depend on", "depend upon"]. "/"가 없으면 그대로 하나. */
+function expandSlashVariants(phrase: string): string[] {
+  const tokens = phrase.split(' ');
+  const slashIndex = tokens.findIndex((t) => t.includes('/'));
+  if (slashIndex === -1) return [phrase];
+  const [a, b] = tokens[slashIndex].split('/');
+  const withA = [...tokens];
+  withA[slashIndex] = a;
+  const withB = [...tokens];
+  withB[slashIndex] = b;
+  return [withA.join(' '), withB.join(' ')];
 }
 
 /** prs 후보 목록에서 첫 번째로 쓸 만한(발음기호 또는 음원이 있는) 것을 뽑는다. */
@@ -133,8 +187,7 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
     // 경우가 흔하다(예: synthesize). 이미 표제어 자체는 위에서 확인했으므로
     // "엉뚱한 단어" 위험 없이 커버리지만 늘어난다.
     if (hw === want) {
-      const candidates = [...(entry.hwi?.prs ?? []), ...(entry.vrs ?? []).flatMap((v) => v.prs ?? [])];
-      const found = pickPronunciation(candidates);
+      const found = pickPronunciation(headwordCandidates(entry));
       if (found) return found;
     }
 
@@ -149,12 +202,44 @@ export function extractPronunciation(data: unknown, query: string): MwPronunciat
       const found = pickPronunciation(inflection.prs ?? []);
       if (found) return found;
 
-      // 굴절형 자체엔(quickly처럼) 자체 발음이 없다 — successively/astoundingly류가
-      // 실제로 이 경우다. 표제어(원형) 발음이 있으면 폴백 후보로 남겨 둔다. 정확한
-      // 일치가 끝까지 하나도 안 나오면 이걸 대신 쓴다.
+      // 굴절형 자체엔(quickly처럼) 자체 발음이 없다 — 표제어(원형) 발음이 있으면
+      // 폴백 후보로 남겨 둔다. 정확한 일치가 끝까지 하나도 안 나오면 이걸 대신 쓴다.
       if (!baseFallback && hw) {
-        const hwCandidates = [...(entry.hwi?.prs ?? []), ...(entry.vrs ?? []).flatMap((v) => v.prs ?? [])];
-        const hwFound = pickPronunciation(hwCandidates);
+        const hwFound = pickPronunciation(headwordCandidates(entry));
+        if (hwFound) baseFallback = { ...hwFound, baseWord: hw };
+      }
+    }
+
+    // successively/irrevocably/astoundingly류의 실제 위치 — 굴절형(ins)이 아니라
+    // "undefined run-on"(uros)이다. ins와 달리 거의 항상 자기 발음을 직접 갖고
+    // 있으므로(원형과 다른 별도 음원), 찾으면 폴백이 아니라 바로 확정해 돌려준다.
+    for (const runOn of entry.uros ?? []) {
+      const runOnWord = runOn.ure?.replace(/\*/g, '').trim().toLowerCase();
+      if (runOnWord !== want) continue;
+      const found = pickPronunciation(runOn.prs ?? []);
+      if (found) return found;
+
+      // 드물게 run-on 자체엔 발음이 없는 경우에 대비해 ins와 동일하게 원형 폴백을 남긴다.
+      if (!baseFallback && hw) {
+        const hwFound = pickPronunciation(headwordCandidates(entry));
+        if (hwFound) baseFallback = { ...hwFound, baseWord: hw };
+      }
+    }
+
+    // account for/depend on/stamp out류 구동사·숙어의 실제 위치 — "defined run-on
+    // phrase"(dros)다. 실제 응답으로 확인한 바 자체 발음을 거의 안 갖고 있어서(구동사
+    // 발음이 구성 단어와 다르지 않기 때문으로 보인다), 표제어(핵심 동사) 발음을
+    // baseWord와 함께 폴백으로 준다 — "account for"엔 "account"의 발음을 보여주는 식.
+    for (const runOnPhrase of entry.dros ?? []) {
+      if (!runOnPhrase.drp) continue;
+      const variants = expandSlashVariants(runOnPhrase.drp.replace(/\*/g, '').trim().toLowerCase());
+      if (!variants.includes(want)) continue;
+
+      const found = pickPronunciation(runOnPhrase.prs ?? []);
+      if (found) return found;
+
+      if (!baseFallback && hw) {
+        const hwFound = pickPronunciation(headwordCandidates(entry));
         if (hwFound) baseFallback = { ...hwFound, baseWord: hw };
       }
     }

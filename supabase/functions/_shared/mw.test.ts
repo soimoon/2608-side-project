@@ -201,6 +201,110 @@ describe('extractPronunciation', () => {
     expect(extractPronunciation(data, 'fooly')).toBeNull();
   });
 
+  // 실제 Collegiate 응답(2026-08, "irrevocably" 조회): 파생 부사가 ins(굴절형)가
+  // 아니라 uros("undefined run-on")에 실려 있었다 — 처음엔 이걸 놓쳐서
+  // successively/astoundingly/irrevocably류가 전부 "발음 없음"이 됐다. ins와 달리
+  // uros는 자기 자신의 음원(irrevo05)을 따로 갖고 있다 — 표제어(irrevo01)와 다르다.
+  const realIrrevocableEntry = {
+    meta: { id: 'irrevocable', stems: ['irrevocable', 'irrevocably'] },
+    hwi: {
+      hw: 'ir*rev*o*ca*ble',
+      prs: [{ mw: 'i-ˈre-və-kə-bəl', sound: { audio: 'irrevo01' } }],
+    },
+    uros: [
+      {
+        ure: 'ir*rev*o*ca*bly',
+        prs: [{ mw: 'i-ˈre-və-kə-blē', sound: { audio: 'irrevo05' } }],
+      },
+    ],
+  };
+
+  it('파생어가 uros(run-on)에 실려 있고 자체 발음이 있으면 그걸 바로 가져온다', () => {
+    const got = extractPronunciation([realIrrevocableEntry], 'irrevocably');
+    expect(got).toEqual({
+      phonetic: 'i-ˈre-və-kə-blē',
+      notation: 'mw',
+      audioUrl: 'https://media.merriam-webster.com/audio/prons/en/us/mp3/i/irrevo05.mp3',
+    });
+  });
+
+  it('uros 항목에 자체 발음이 없으면 표제어(원형) 발음을 baseWord와 함께 폴백으로 준다', () => {
+    const data = [
+      {
+        meta: { id: 'successive' },
+        hwi: { hw: 'suc*ces*sive', prs: [{ ipa: 'səkˈsɛsɪv', sound: { audio: 'success03' } }] },
+        uros: [{ ure: 'suc*ces*sive*ly' }],
+      },
+    ];
+    const got = extractPronunciation(data, 'successively');
+    expect(got).toEqual({
+      phonetic: 'səkˈsɛsɪv',
+      notation: 'ipa',
+      audioUrl: 'https://media.merriam-webster.com/audio/prons/en/us/mp3/s/success03.mp3',
+      baseWord: 'successive',
+    });
+  });
+
+  it('uros 파생어 문자열이 정확히 일치하지 않으면 발음을 주지 않는다', () => {
+    const data = [
+      {
+        meta: { id: 'quick' },
+        hwi: { hw: 'quick' },
+        uros: [{ ure: 'quick*ness', prs: [{ ipa: 'ˈkwɪknəs' }] }],
+      },
+    ];
+    expect(extractPronunciation(data, 'quickly')).toBeNull();
+  });
+
+  // 실제 Learner's 응답(2026-08, "account for" 조회): 구동사가 dros(defined run-on
+  // phrase)에 실려 있고, hwi엔 prs가 아니라 altprs만 있다(동형이의어 "account"의 동사
+  // 항목이라 명사 항목과 발음을 공유하는 형태). dros 자체엔 발음이 없다 — 구동사
+  // 발음이 핵심 동사와 다르지 않기 때문으로 보인다. "account"의 발음을 baseWord와
+  // 함께 폴백으로 준다.
+  it('구동사가 dros에 있고 altprs만 있으면 그걸 baseWord 폴백으로 쓴다', () => {
+    const data = [
+      {
+        meta: { id: 'account:2' },
+        hom: 2,
+        hwi: { hw: 'account', altprs: [{ ipa: 'əˈkaʊnt' }] },
+        fl: 'verb',
+        dros: [{ drp: 'account for', gram: 'phrasal verb' }],
+      },
+    ];
+    const got = extractPronunciation(data, 'account for');
+    expect(got).toEqual({ phonetic: 'əˈkaʊnt', notation: 'ipa', baseWord: 'account' });
+  });
+
+  // 실제 Learner's 응답: "depend on/upon"처럼 "/"로 대체 형태를 묶어 쓴다.
+  it('dros의 "/" 대체 표기를 펼쳐서 일치시킨다("depend on/upon" → "depend on")', () => {
+    const data = [
+      {
+        meta: { id: 'depend' },
+        hwi: { hw: 'de*pend', prs: [{ ipa: 'dɪˈpɛnd', sound: { audio: 'depend01' } }] },
+        dros: [{ drp: 'depend on/upon' }],
+      },
+    ];
+    const got = extractPronunciation(data, 'depend on');
+    expect(got).toEqual({
+      phonetic: 'dɪˈpɛnd',
+      notation: 'ipa',
+      audioUrl: 'https://media.merriam-webster.com/audio/prons/en/us/mp3/d/depend01.mp3',
+      baseWord: 'depend',
+    });
+    expect(extractPronunciation(data, 'depend upon')?.baseWord).toBe('depend');
+  });
+
+  it('dros 숙어 문자열이 정확히 일치하지 않으면 발음을 주지 않는다', () => {
+    const data = [
+      {
+        meta: { id: 'stamp:2' },
+        hwi: { hw: 'stamp', altprs: [{ ipa: 'ˈstæmp' }] },
+        dros: [{ drp: 'stamp on' }, { drp: 'stamp as' }],
+      },
+    ];
+    expect(extractPronunciation(data, 'stamp out')).toBeNull();
+  });
+
   it('굴절형 문자열이 정확히 일치하지 않으면 발음을 주지 않는다', () => {
     const data = [
       {
