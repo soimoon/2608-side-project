@@ -236,7 +236,7 @@ export default function ProfileScreen({
           기기를 바꾸면 사라질 씨앗을 애써 모으게 하지 않는다. */}
       {isRealSession(sync.session) && (
         <button className="row nickname-row friends-entry" onClick={onGoDecor}>
-          <span className="muted">꾸미기</span>
+          <span className="muted">씨앗 상점</span>
           <Avatar itemId={wallet.equipped.avatar} size="sm" />
           <span className="friends-entry-label">씨앗 {wallet.wallet.balance}개</span>
         </button>
