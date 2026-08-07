@@ -21,6 +21,25 @@ const SOUNDS = {
 
 export type SfxName = keyof typeof SOUNDS;
 
+const ENABLED_KEY = 'voca-quiz/sfx-enabled';
+
+/** 기본값은 켜짐 — 명시적으로 끈 적이 있을 때만 '0'이 저장돼 있다. */
+export function isSfxEnabled(): boolean {
+  try {
+    return localStorage.getItem(ENABLED_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+export function setSfxEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(ENABLED_KEY, enabled ? '1' : '0');
+  } catch {
+    /* no-op — 저장 안 돼도 이번 세션 내 재생만 막히지 않을 뿐, 치명적이지 않다 */
+  }
+}
+
 /**
  * 효과음 재생. 매번 새 Audio 인스턴스를 만든다 — pronounce.ts의 playAudio와 달리
  * 여기서는 겹쳐 재생돼야 자연스럽다(예: 그룹게임에서 여러 명이 동시에 정답을
@@ -30,8 +49,10 @@ export type SfxName = keyof typeof SOUNDS;
  * 재생이 끝나면(또는 실패하면) resolve되는 Promise를 돌려준다 — 발음 자동재생이
  * 이 소리와 겹치지 않고 끝난 뒤에 이어서 나오게 하려는 용도다(QuizScreen 참고).
  * 'ended' 이벤트가 어떤 이유로든 안 불릴 경우를 대비해 1.5초 안전망도 둔다.
+ * 설정에서 꺼뒀으면 아무 소리도 안 내고 곧바로 resolve한다.
  */
 export function playSfx(name: SfxName): Promise<void> {
+  if (!isSfxEnabled()) return Promise.resolve();
   return new Promise((resolve) => {
     let done = false;
     const finish = () => {
