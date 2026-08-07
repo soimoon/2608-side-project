@@ -7,14 +7,18 @@
  * 공부 앱이라 "산만하지 않고 조용하게"가 핵심 요구사항이었다 — 전체 볼륨을 낮게
  * 잡고, 카운트다운 tick은 실사용 피드백으로 한 번 더(75% → 37.5%) 낮췄다 — 3초
  * 동안 세 번이나 울리는 소리라 이만큼 낮추지 않으면 정답/오답보다 오히려 더 거슬린다.
+ *
+ * 오답음은 처음엔 정답보다 한 단계 낮춘 볼륨(80%)의 error_006을 썼는데, 실사용
+ * 피드백으로 "굉장히 거슬린다"는 의견을 받아 같은 팩의 error_007로 교체하고
+ * 정답과 같은 볼륨(100%)으로 맞췄다 — 정답과 위화감 없게, 소리 자체가 이미
+ * 더 부드러워 굳이 한 단계 낮추지 않아도 된다는 판단.
  */
 
 const MASTER_VOLUME = 0.5;
 
 const SOUNDS = {
   correct: { file: 'correct.ogg', volume: 1 },
-  /** 정답보다 한 단계 조용하게. */
-  wrong: { file: 'wrong.ogg', volume: 0.8 },
+  wrong: { file: 'wrong.ogg', volume: 1 },
   tick: { file: 'tick.ogg', volume: 0.375 },
 } as const satisfies Record<string, { file: string; volume: number }>;
 
