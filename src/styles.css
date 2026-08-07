@@ -197,6 +197,10 @@ code {
   background: var(--surface-2);
   color: var(--text);
   transition: filter 0.12s, background 0.12s, border-color 0.12s;
+  /* 버튼이 좁은 flex 자리에 눌리면 한글이 띄어쓰기 없이 글자마다 줄바꿈되며 세로로
+     쌓여 보일 수 있다("게임 시작" → "게임시\n작") — 버튼 글자는 절대 줄바꿈되면
+     안 되므로 원천 차단한다. */
+  white-space: nowrap;
 }
 .btn:hover:not(:disabled) {
   filter: brightness(1.15);
@@ -1624,6 +1628,18 @@ input[type='radio'] {
 }
 .room-meta {
   margin-top: -8px;
+}
+.room-status {
+  margin-top: -12px;
+  font-size: 0.85rem;
+}
+/* 단어장 선택이 "주인공"일 때(아직 선택 전) 남은 공간을 다 차지하고, 목록이 길면
+   카드 안에서만 스크롤된다 — .chat-panel과 같은 flex:1 취급이라 둘이 자리를
+   두고 다투지 않는다(RoomScreen이 둘 중 하나만 그린다). */
+.source-picker-expanded {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .source-summary {
   display: flex;

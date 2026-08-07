@@ -186,12 +186,34 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
               친구 초대
             </button>
           )}
+          {/* 예전엔 화면 하단 중앙에 큰 버튼으로 따로 떠 있어서 존재감이 과했다 —
+              탑바로 옮기고 작게 줄였다. 막힌 이유는 title(호버 툴팁) + 아래
+              room-status 줄로 같이 보여준다(터치 기기는 툴팁이 안 뜨니까). */}
+          {isHost && (
+            <button
+              className="btn primary sm"
+              disabled={!canStart}
+              onClick={handleStart}
+              title={startBlockedReason || undefined}
+            >
+              {starting ? '시작 중…' : '게임 시작'}
+            </button>
+          )}
         </div>
       </div>
 
       <p className="muted room-meta">
         {SPEED_LABEL[room.speed]} · {room.roundCount}문제
       </p>
+
+      {isHost && startBlockedReason && <p className="muted room-status">{startBlockedReason}</p>}
+      {!isHost && <p className="muted room-status">방장이 게임을 시작하기를 기다리는 중입니다.</p>}
+
+      {startError && (
+        <p className="notice-bar" role="status">
+          {startError}
+        </p>
+      )}
 
       {inviteNotice && (
         <p className="notice-bar" role="status">
@@ -217,33 +239,21 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
         </button>
       </div>
 
-      {showSourcePicker && (
+      {/* 아직 안 골랐으면 단어장 선택이, 골랐으면 채팅이 남은 공간을 전부 차지하는
+          "주인공"이다 — 둘 다 flex:1로 밑에 나란히 두면 서로 눌려서 잘 안 보인다는
+          피드백이 있어서, 한 번에 하나만 크게 보여주는 구조로 바꿨다. */}
+      {showSourcePicker ? (
         <SourcePicker
+          className="source-picker-expanded"
           roomId={roomId}
           words={words}
           decks={decks}
           currentLabel={me?.sourceLabel ?? null}
           onSelected={() => setSourcePickerOverride(false)}
         />
-      )}
-
-      {isHost ? (
-        <div className="sticky-actions">
-          {startBlockedReason && <p className="muted">{startBlockedReason}</p>}
-          {startError && (
-            <p className="notice-bar" role="status">
-              {startError}
-            </p>
-          )}
-          <button className="btn primary lg" disabled={!canStart} onClick={handleStart}>
-            {starting ? '시작하는 중…' : '게임 시작'}
-          </button>
-        </div>
       ) : (
-        <p className="muted">방장이 게임을 시작하기를 기다리는 중입니다.</p>
+        <ChatPanel messages={messages} me={userId ?? ''} onSend={send} />
       )}
-
-      <ChatPanel messages={messages} me={userId ?? ''} onSend={send} />
 
       {inviting && (
         <InviteFriendsModal

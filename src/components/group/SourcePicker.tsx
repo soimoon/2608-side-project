@@ -11,6 +11,8 @@ interface Props {
   /** 이미 골랐다면 그 라벨(내 단어장 이름 또는 공식 덱 이름). */
   currentLabel: string | null;
   onSelected: () => void;
+  /** 방 화면에서 "지금 이게 주인공 화면"일 때(아직 선택 전) flex:1로 넓게 펴는 용도. */
+  className?: string;
 }
 
 /**
@@ -18,7 +20,7 @@ interface Props {
  * 덱만 쓰면 재미가 없어서, 내 단어장 + 공식 덱을 한 목록에 섞어 보여준다 — 단어장이
  * 비어 있는 신규 사용자도 공식 덱을 고르면 되므로 모드 분기가 없다.
  */
-export default function SourcePicker({ roomId, words, decks, currentLabel, onSelected }: Props) {
+export default function SourcePicker({ roomId, words, decks, currentLabel, onSelected, className }: Props) {
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [error, setError] = useState('');
 
@@ -58,7 +60,7 @@ export default function SourcePicker({ roomId, words, decks, currentLabel, onSel
   }
 
   return (
-    <section className="card">
+    <section className={`card${className ? ` ${className}` : ''}`}>
       <h3>내가 낼 단어장</h3>
       <p className="muted">
         {currentLabel
