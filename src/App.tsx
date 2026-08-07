@@ -215,15 +215,23 @@ export default function App() {
     return () => window.removeEventListener('focus', pull);
   }, [sync.session]);
 
-  /** 출석·미션 보상 수령. 로컬에 즉시 반영하고, 로그인 상태면 계정에도 올린다. */
+  // wallet 객체 자체는 매 렌더 새로 만들어지지만 refresh는 useWallet 안에서
+  // userId만 의존하는 안정적인 참조라, 이렇게 분리해 두면 claim의 useCallback이
+  // 매번 재생성되지 않는다.
+  const refreshWallet = wallet.refresh;
+
+  /** 출석·미션 보상 수령. 로컬에 즉시 반영하고, 로그인 상태면 계정에도 올린다.
+   *  씨앗 지급은 daily_claims insert에 달린 서버 트리거가 처리하므로, push가 끝난
+   *  뒤(=트리거도 같은 트랜잭션 안에서 이미 끝난 뒤) wallet을 다시 불러와야 화면의
+   *  잔액이 그 자리에서 바로 바뀐다 — 안 그러면 화면을 나갔다 들어와야만 반영됐다. */
   const claim = useCallback(
     (kind: ClaimKind) => {
       const today = kstDateKey(Date.now());
       const key = claimKey(today, kind);
       setDB((d) => (d.dailyClaims.includes(key) ? d : { ...d, dailyClaims: [...d.dailyClaims, key] }));
-      if (sync.session) void pushDailyClaim(sync.session.user.id, today, kind);
+      if (sync.session) void pushDailyClaim(sync.session.user.id, today, kind).then(refreshWallet);
     },
-    [sync.session],
+    [sync.session, refreshWallet],
   );
 
   const setWords = useCallback((updater: (prev: Word[]) => Word[]) => {
@@ -598,6 +606,7 @@ export default function App() {
             gameNo={screen.gameNo}
             myUserId={realUserId}
             onBackToRoom={() => goRoom(screen.roomId)}
+            onRewardClaimed={refreshWallet}
           />
         );
       case 'quizHub':
@@ -650,6 +659,7 @@ export default function App() {
     sync,
     friends,
     wallet,
+    refreshWallet,
     realUserId,
     setTheme,
     claim,

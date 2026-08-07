@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { QuizSettings, Strategy, Word } from '../types';
-import { pickWords } from '../lib/select';
+import { byOrder, pickWords } from '../lib/select';
 import { maskPreview } from '../lib/mask';
 
 const PRESETS: { label: string; ratio: number; hint: string }[] = [
@@ -23,6 +23,11 @@ const STRATEGIES: { value: Strategy; label: string; desc: string }[] = [
     value: 'order',
     label: '등록 순서',
     desc: '단어장에 보이는 순서 그대로. 단어장 편집에서 순서를 바꿨다면 그 순서를 따릅니다.',
+  },
+  {
+    value: 'range',
+    label: '직접 범위 설정',
+    desc: '등록 순서 기준으로 몇 번째부터 몇 번째까지만 골라 출제합니다. 예: 100개 중 앞 50개는 이미 했으니 뒤 50개만.',
   },
 ];
 
@@ -54,7 +59,20 @@ export default function SetupScreen({
     () => (s.decks.length ? words.filter((w) => s.decks.includes(w.deck)) : words),
     [words, s.decks],
   );
-  const actualCount = Math.min(s.count, available.length);
+
+  // '직접 범위 설정'에서 몇 번째 단어인지 보여주려면 등록 순서로 정렬된 목록이 필요하다
+  // (단어장 편집 화면·'등록 순서' 전략과 같은 정렬 기준).
+  const sortedAvailable = useMemo(() => available.slice().sort(byOrder), [available]);
+  // 값을 한 번도 안 건드렸으면(undefined) 1번부터 최대 50개(또는 있는 만큼)를 기본으로 보여준다.
+  const rangeFrom = s.rangeFrom ?? 1;
+  const rangeTo = s.rangeTo ?? Math.min(50, sortedAvailable.length || 1);
+  const fromWord = sortedAvailable[Math.min(rangeFrom, rangeTo) - 1];
+  const toWord = sortedAvailable[Math.max(rangeFrom, rangeTo) - 1] ?? sortedAvailable[sortedAvailable.length - 1];
+
+  const actualCount =
+    s.strategy === 'range'
+      ? pickWords(words, s.decks, 0, 'range', { from: rangeFrom, to: rangeTo }).length
+      : Math.min(s.count, available.length);
 
   // 실제 출제될 단어로 미리보기를 만들어 난이도 체감이 정확하도록 한다.
   const samples = useMemo(() => {
@@ -70,7 +88,10 @@ export default function SetupScreen({
   }
 
   function start() {
-    const picked = pickWords(words, s.decks, s.count, s.strategy);
+    const picked =
+      s.strategy === 'range'
+        ? pickWords(words, s.decks, 0, 'range', { from: rangeFrom, to: rangeTo })
+        : pickWords(words, s.decks, s.count, s.strategy);
     if (picked.length === 0) return;
     onSettingsChange(s);
     onStart(picked, s);
@@ -154,10 +175,14 @@ export default function SetupScreen({
             </div>
           </label>
 
-          <label className="field">
+          <label className={`field ${s.strategy === 'range' ? 'disabled' : ''}`}>
             <span>문제 수</span>
             <div className="stepper">
-              <button className="btn ghost sm" onClick={() => patch({ count: Math.max(1, s.count - 10) })}>
+              <button
+                className="btn ghost sm"
+                disabled={s.strategy === 'range'}
+                onClick={() => patch({ count: Math.max(1, s.count - 10) })}
+              >
                 −10
               </button>
               <input
@@ -165,9 +190,14 @@ export default function SetupScreen({
                 min={1}
                 max={500}
                 value={s.count}
+                disabled={s.strategy === 'range'}
                 onChange={(e) => patch({ count: Math.max(1, Number(e.target.value) || 1) })}
               />
-              <button className="btn ghost sm" onClick={() => patch({ count: s.count + 10 })}>
+              <button
+                className="btn ghost sm"
+                disabled={s.strategy === 'range'}
+                onClick={() => patch({ count: s.count + 10 })}
+              >
                 +10
               </button>
             </div>
@@ -176,6 +206,7 @@ export default function SetupScreen({
         <p className="muted">
           선택한 단어장에 <b>{available.length}개</b>가 있고, 이번에 <b>{actualCount}문제</b>가
           출제됩니다.
+          {s.strategy === 'range' && ' (직접 범위 설정 중이라 문제 수는 범위 길이로 자동 결정됩니다.)'}
         </p>
       </section>
 
@@ -198,18 +229,52 @@ export default function SetupScreen({
 
         <div className="radio-list">
           {STRATEGIES.map((st) => (
-            <label key={st.value} className={`radio ${s.strategy === st.value ? 'on' : ''}`}>
-              <input
-                type="radio"
-                name="strategy"
-                checked={s.strategy === st.value}
-                onChange={() => patch({ strategy: st.value })}
-              />
-              <span>
-                <b>{st.label}</b>
-                <small>{st.desc}</small>
-              </span>
-            </label>
+            <div key={st.value}>
+              <label className={`radio ${s.strategy === st.value ? 'on' : ''}`}>
+                <input
+                  type="radio"
+                  name="strategy"
+                  checked={s.strategy === st.value}
+                  onChange={() => patch({ strategy: st.value })}
+                />
+                <span>
+                  <b>{st.label}</b>
+                  <small>{st.desc}</small>
+                </span>
+              </label>
+
+              {st.value === 'range' && s.strategy === 'range' && (
+                <div className="range-picker">
+                  <div className="range-inputs">
+                    <input
+                      type="number"
+                      min={1}
+                      max={sortedAvailable.length || 1}
+                      value={rangeFrom}
+                      onChange={(e) => patch({ rangeFrom: Math.max(1, Number(e.target.value) || 1) })}
+                    />
+                    <span>번째부터</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={sortedAvailable.length || 1}
+                      value={rangeTo}
+                      onChange={(e) => patch({ rangeTo: Math.max(1, Number(e.target.value) || 1) })}
+                    />
+                    <span>번째 단어까지 출제</span>
+                  </div>
+                  {sortedAvailable.length === 0 ? (
+                    <p className="muted">선택한 단어장에 단어가 없습니다.</p>
+                  ) : (
+                    <div className="range-preview">
+                      <span className="chip on">{fromWord?.en ?? '—'}</span>
+                      <span className="muted">…</span>
+                      <span className="chip on">{toWord?.en ?? '—'}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </section>

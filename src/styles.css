@@ -341,6 +341,9 @@ input[type='radio'] {
 .field.slider span {
   color: var(--text);
 }
+.field.disabled {
+  opacity: 0.45;
+}
 .field b {
   color: var(--accent);
 }
@@ -1077,6 +1080,35 @@ input[type='radio'] {
 .check small {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.range-picker {
+  margin: 6px 0 4px 12px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--accent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.range-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.range-inputs input[type='number'] {
+  width: 4.5em;
+  text-align: center;
+}
+.range-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.range-preview .chip {
+  cursor: default;
 }
 
 .sticky-actions {

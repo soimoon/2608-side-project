@@ -43,18 +43,22 @@ export interface Word {
   stats: WordStats;
 }
 
-export type Strategy = 'weak' | 'random' | 'order';
+export type Strategy = 'weak' | 'random' | 'order' | 'range';
 
 export interface QuizSettings {
   /** 출제할 단어장. 빈 배열이면 전체. */
   decks: string[];
-  /** 이번 퀴즈 문제 수. */
+  /** 이번 퀴즈 문제 수. strategy가 'range'면 무시되고 rangeFrom/rangeTo가 문제 수를 정한다. */
   count: number;
   /** 첫 글자 포함해 공개할 알파벳 비율 (0 ~ 0.4). */
   hintRatio: number;
   /** 단어당 제한 시간(초). */
   seconds: number;
   strategy: Strategy;
+  /** strategy가 'range'일 때만 쓰는 시작/끝 번째(1부터, 등록 순서 기준). 다른
+   *  전략에서는 안 쓰이므로 옵셔널로 두어 기존 QuizSettings 생성 지점을 안 건드린다. */
+  rangeFrom?: number;
+  rangeTo?: number;
   /** 틀리거나 시간 초과했을 때 정답을 보여주고 그대로 따라 치게 할지 (근육기억 강화). */
   retypeOnMiss: boolean;
   /** 틀린 단어를 세션 뒤쪽에 다시 출제할지. */

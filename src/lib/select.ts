@@ -107,26 +107,43 @@ function shuffle<T>(arr: T[]): T[] {
 /**
  * 이번 퀴즈에 출제할 단어를 고른다.
  * decks가 비어 있으면 전체 단어장을 대상으로 한다.
+ *
+ * range는 strategy가 'range'일 때만 쓰인다(1부터 시작하는, 등록 순서 기준의
+ * [from, to] 닫힌 구간). from > to로 뒤집어 넣어도 정상 동작하도록 여기서 바로잡는다
+ * — SetupScreen에서 두 입력칸을 자유롭게 넘나들며 타이핑할 때 중간 상태가 굳이
+ * 에러가 되지 않게 하려는 것.
  */
 export function pickWords(
   all: Word[],
   decks: string[],
   count: number,
   strategy: Strategy,
+  range?: { from: number; to: number },
 ): Word[] {
   const candidates = decks.length ? all.filter((w) => decks.includes(w.deck)) : all;
-  const n = Math.min(count, candidates.length);
-  if (n === 0) return [];
 
   switch (strategy) {
-    case 'order':
+    case 'order': {
       // 단어장 화면에서 보이는 순서와 정확히 같아야 한다 — 직접 바꾼 순서가 있으면 그것을 따른다.
+      const n = Math.min(count, candidates.length);
       return candidates.slice().sort(byOrder).slice(0, n);
-    case 'random':
+    }
+    case 'random': {
+      const n = Math.min(count, candidates.length);
       return shuffle(candidates).slice(0, n);
-    case 'weak':
+    }
+    case 'weak': {
       // 가중 추출로 뽑되, 출제 순서 자체는 섞어 난이도 편향을 없앤다.
+      const n = Math.min(count, candidates.length);
       return shuffle(weightedSample(candidates, n, Date.now()));
+    }
+    case 'range': {
+      if (!range) return [];
+      const sorted = candidates.slice().sort(byOrder);
+      const from = Math.max(1, Math.min(range.from, range.to));
+      const to = Math.max(range.from, range.to);
+      return sorted.slice(from - 1, to);
+    }
   }
 }
 

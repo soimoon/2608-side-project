@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Attempt, SessionResult, Verdict, Word, WordStats } from '../types';
-import { byOrder, lastWrongAt, pickRevivalWords, reorderWords, revivalPool, sortKey } from './select';
+import { byOrder, lastWrongAt, pickRevivalWords, pickWords, reorderWords, revivalPool, sortKey } from './select';
 
 function word(id: string, stats: Partial<WordStats>, deck = '기본'): Word {
   return {
@@ -126,6 +126,40 @@ describe('sortKey / reorderWords', () => {
     const changes = reorderWords(list, 2, 0);
     expect(applied(list, changes)).toEqual(['c', 'a', 'b']);
     expect(changes.get('c')).toBeLessThan(1000);
+  });
+});
+
+describe("pickWords 'range' 전략", () => {
+  const list = [
+    ordered('a', 100),
+    ordered('b', 200),
+    ordered('c', 300),
+    ordered('d', 400),
+    ordered('e', 500),
+  ];
+
+  it('등록 순서 기준으로 [from, to] 구간을 그대로 돌려준다', () => {
+    const picked = pickWords(list, [], 999, 'range', { from: 2, to: 4 });
+    expect(picked.map((w) => w.id)).toEqual(['b', 'c', 'd']);
+  });
+
+  it('count는 완전히 무시한다 — 문제 수는 구간 길이로만 정해진다', () => {
+    const picked = pickWords(list, [], 1, 'range', { from: 1, to: 3 });
+    expect(picked).toHaveLength(3);
+  });
+
+  it('from > to로 뒤집어 넣어도 알아서 바로잡는다', () => {
+    const picked = pickWords(list, [], 999, 'range', { from: 4, to: 2 });
+    expect(picked.map((w) => w.id)).toEqual(['b', 'c', 'd']);
+  });
+
+  it('범위가 목록 길이를 넘어가면 있는 만큼만 돌려준다', () => {
+    const picked = pickWords(list, [], 999, 'range', { from: 4, to: 100 });
+    expect(picked.map((w) => w.id)).toEqual(['d', 'e']);
+  });
+
+  it('range를 안 넘기면 빈 배열 — 호출부 실수를 조용히 삼키지 않는다', () => {
+    expect(pickWords(list, [], 999, 'range')).toEqual([]);
   });
 });
 

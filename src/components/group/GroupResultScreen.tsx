@@ -10,6 +10,9 @@ interface Props {
   /** 게스트(익명)면 undefined — 재화가 실계정 전용이라 그때는 보상 수령 시도 자체를 안 한다. */
   myUserId: string | undefined;
   onBackToRoom: () => void;
+  /** 1등 보상 지급 성공 시 호출 — App.tsx의 wallet.refresh를 그대로 받아, 프로필로
+   *  돌아가지 않아도 잔액이 그 자리에서 바로 반영되게 한다. */
+  onRewardClaimed?: () => void;
 }
 
 const MEDAL: { icon: IconName; rankClass: string }[] = [
@@ -23,7 +26,7 @@ const MEDAL: { icon: IconName; rankClass: string }[] = [
  * (화면 전환 후 사라질 수 있는 상태에 기대지 않기 위해) roomId+gameNo로 독립적으로
  * 다시 조회한다 — 방 목록의 "결과 화면"과 같은 패턴이다.
  */
-export default function GroupResultScreen({ roomId, gameNo, myUserId, onBackToRoom }: Props) {
+export default function GroupResultScreen({ roomId, gameNo, myUserId, onBackToRoom, onRewardClaimed }: Props) {
   const [players, setPlayers] = useState<RoomPlayer[]>([]);
   const [answers, setAnswers] = useState<RoomAnswer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,6 +81,7 @@ export default function GroupResultScreen({ roomId, gameNo, myUserId, onBackToRo
     void claimGameReward(roomId, gameNo).then((res) => {
       if (res.ok && res.data) {
         setRewardNotice(`🎉 1등 보상으로 씨앗 ${res.data}개를 받았습니다!`);
+        onRewardClaimed?.();
       } else if (res.error && res.error !== CLAIM_NOT_WINNER_MESSAGE) {
         // "1등이 아닙니다"는 standings 판정과 서버 판정이 아주 드물게 어긋나는 경우
         // (동시 도착 등)라 조용히 넘긴다 — 그 밖의 사유(공동 1등·일일 한도 등)는
@@ -85,7 +89,7 @@ export default function GroupResultScreen({ roomId, gameNo, myUserId, onBackToRo
         setRewardNotice(res.error);
       }
     });
-  }, [loading, iAmRankOne, myUserId, roomId, gameNo]);
+  }, [loading, iAmRankOne, myUserId, roomId, gameNo, onRewardClaimed]);
 
   if (loading) {
     return (
