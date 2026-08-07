@@ -40,6 +40,16 @@ export default function PronounceButton({ pron, showPhonetic = true, size = 'md'
             {phonetic}
           </span>
         )}
+        {/* correspondingly처럼 원형(corresponding) 자체도 MW에 음원 없이 발음기호만
+         *  실려 있는 드문 경우 — 재생 버튼은 못 주지만 누구 발음기호인지는 밝혀 준다. */}
+        {baseNote && (
+          <span
+            className="pron-base muted"
+            title={`"${pron.en}"은(는) "${pron.baseWord}"에서 규칙적으로 파생된 단어라 발음도 사실상 같습니다`}
+          >
+            {baseNote}
+          </span>
+        )}
         <span
           className="pron-none muted"
           title="Merriam-Webster 사전에서 확인했지만 이 단어(숙어 등)는 별도 발음 녹음이 없습니다"

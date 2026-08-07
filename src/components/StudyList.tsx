@@ -231,7 +231,7 @@ export default function StudyList({
               )}
               <div className="study-row-en">
                 <span className="study-en">{w.en}</span>
-                <PronounceButton pron={lookupCache(w.en, pronunciations)} size="sm" />
+                <PronounceButton pron={lookupCache(w.en, pronunciations)} size="sm" showPhonetic={false} />
               </div>
               <div className="study-row-ko">
                 {w.ko.length > 1 ? (

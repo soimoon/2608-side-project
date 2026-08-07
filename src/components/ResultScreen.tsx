@@ -116,7 +116,7 @@ export default function ResultScreen({
                 <tr key={i}>
                   <td className="en">{a.en}</td>
                   <td className="nowrap">
-                    <PronounceButton pron={lookupCache(a.en, pronunciations)} size="sm" />
+                    <PronounceButton pron={lookupCache(a.en, pronunciations)} size="sm" showPhonetic={false} />
                   </td>
                   <td>{a.ko.join(' / ')}</td>
                   <td className={`muted ${a.verdict}`}>

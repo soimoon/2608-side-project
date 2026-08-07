@@ -423,7 +423,7 @@ export default function DeckDetailScreen({
                     />
                   </td>
                   <td className="nowrap">
-                    <PronounceButton pron={lookupCache(w.en, pronunciations)} size="sm" />
+                    <PronounceButton pron={lookupCache(w.en, pronunciations)} size="sm" showPhonetic={false} />
                   </td>
                   <td>
                     <input
