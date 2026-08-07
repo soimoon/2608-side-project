@@ -74,6 +74,15 @@ export default function GroupResultScreen({ roomId, gameNo, onBackToRoom }: Prop
         <h1>결과</h1>
       </header>
 
+      {/* fetchAnswers/fetchPlayers는 실패해도 []를 돌려주므로(방금 방금 끝난 판이라
+          일시적으로 못 불러왔거나, network 문제), 빈 목록만 덩그러니 두지 않는다. */}
+      {standings.length === 0 && (
+        <div className="empty-cta">
+          <p>결과를 불러오지 못했습니다.</p>
+          <p className="muted">네트워크 상태를 확인하고 방으로 돌아가 다시 시도해 보세요.</p>
+        </div>
+      )}
+
       <div className="room-list">
         {standings.map((s) => (
           <div key={s.userId} className="room-list-item" style={{ cursor: 'default' }}>

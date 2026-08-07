@@ -7,8 +7,10 @@ import type { Schedule } from '../../lib/lockstep';
 import { judge } from '../../lib/judge';
 import { hintStageAt, progressiveMask } from '../../lib/groupMask';
 import { correctScore, fastestCorrectUserId, rankPlayers } from '../../lib/groupScore';
-import { leaveRoom } from '../../lib/groupApi';
+import { leaveRoom, leaveRoomBeacon } from '../../lib/groupApi';
 import Icon from '../Icon';
+import MaskSlots from '../MaskSlots';
+import TimerBar, { timerStageOf } from '../TimerBar';
 
 interface Props {
   roomId: string;
@@ -33,11 +35,16 @@ const VERDICT_TEXT: Record<Verdict, string> = {
  * 단체게임 실제 플레이 화면. QuizScreen.tsx는 한 글자도 건드리지 않는다 — 솔로 퀴즈는
  * 사용자 행동으로 전진하고(retype·requeue 등) 이 화면은 락스텝 스케줄(시계)로 강제
  * 전진한다. 제어 흐름이 근본적으로 다르므로 별도 컴포넌트로 뒀다(계획 문서 참고).
- * 마스크 슬롯·타이머 바 JSX만 QuizScreen과 같은 CSS 클래스를 그대로 재사용한다.
+ * 마스크 슬롯·타이머 바는 순수 표현이라 겹칠 이유가 없어 `MaskSlots`/`TimerBar`
+ * 공통 컴포넌트로 뽑아 QuizScreen과 같이 쓴다 — 타이밍·힌트 계산(락스텝 vs
+ * setInterval)만 이 화면에 남아 있다.
  */
 export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props) {
   const userId = sync.session?.user.id;
-  const { room, players, answers, reactions, loading, submit, finish, sendReaction } = useGroupGame(roomId, userId);
+  const { room, players, answers, reactions, loading, submitError, submit, finish, sendReaction } = useGroupGame(
+    roomId,
+    userId,
+  );
 
   const schedule: Schedule = useMemo(
     () => ({
@@ -103,6 +110,17 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
     await leaveRoom(roomId);
     onLeft();
   }
+
+  // 로비(useGroupRoom)와 같은 이유·같은 조건 — 게임 화면은 이 훅을 안 쓰므로 여기서
+  // 따로 등록한다. persisted===true(bfcache로 잠깐 백그라운드)면 무시.
+  useEffect(() => {
+    if (!roomId) return;
+    const onPageHide = (e: PageTransitionEvent) => {
+      if (!e.persisted) leaveRoomBeacon(roomId);
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, [roomId]);
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key !== 'Enter') return;
@@ -217,7 +235,7 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
   const revealed = word ? progressiveMask(word.en, room.hintRatio ?? 0.2, hintStage, (room.maskSeed ?? 0) + phase.index) : [];
   const previewScore = correctScore(elapsedMs, answerMs);
   const ratio = Math.max(0, phase.msLeft / answerMs);
-  const timerStage = ratio <= 0.25 ? 'urgent' : ratio <= 0.5 ? 'warn' : 'ok';
+  const timerStage = timerStageOf(ratio);
   const already = submittedRounds.has(phase.index);
 
   return (
@@ -232,30 +250,20 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
         <span className={`clock ${timerStage}`}>{(phase.msLeft / 1000).toFixed(1)}s</span>
       </div>
 
-      <div className="timer-track">
-        <div className={`timer-fill ${timerStage}`} style={{ transform: `scaleX(${ratio})` }} />
-        <span className="timer-tick" style={{ left: '50%' }} aria-hidden />
-        <span className="timer-tick" style={{ left: '75%' }} aria-hidden />
-      </div>
+      <TimerBar ratio={ratio} ticks={[0.5, 0.75]} />
+
+      {submitError && (
+        <p className="notice-bar" role="status">
+          {submitError}
+        </p>
+      )}
 
       <div className="quiz-body">
         {word && (
           <p className="meaning">{word.ko.join(' / ')}</p>
         )}
 
-        {word && (
-          <div className="mask" aria-label={`${word.en.length}글자`}>
-            {[...word.en].map((ch, i) =>
-              ch === ' ' ? (
-                <span key={i} className="slot space" />
-              ) : (
-                <span key={i} className={`slot ${revealed[i] ? 'shown' : ''}`}>
-                  {revealed[i] ? ch : ''}
-                </span>
-              ),
-            )}
-          </div>
-        )}
+        {word && <MaskSlots text={word.en} revealed={revealed} />}
 
         <input
           className="answer-input"

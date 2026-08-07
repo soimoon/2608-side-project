@@ -10,14 +10,26 @@ import { listRooms, type RoomSummary } from './groupApi';
 export function useRoomList(enabled: boolean): {
   rooms: RoomSummary[];
   loading: boolean;
+  /** 마지막 새로고침이 실패했을 때만 채워진다. 화면은 "방이 없습니다"가 아니라
+   *  이 문구 + 다시 시도 버튼을 보여줘야 한다 — listRooms()가 예전엔 실패해도 그냥
+   *  []를 돌려줘서 두 상황이 구분이 안 됐다. */
+  error: string | null;
   refresh: () => void;
 } {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
-    void listRooms().then((list) => {
-      setRooms(list);
+    void listRooms().then((res) => {
+      if (res.ok) {
+        // 실패 시엔 rooms를 비우지 않는다 — 잠깐의 폴링 실패로 목록이 깜빡이며
+        // 사라지는 것보다, 직전 값을 보여주며 에러 문구만 얹는 게 낫다.
+        setRooms(res.data ?? []);
+        setError(null);
+      } else {
+        setError(res.error ?? '목록을 불러오지 못했습니다.');
+      }
       setLoading(false);
     });
   }, []);
@@ -28,6 +40,7 @@ export function useRoomList(enabled: boolean): {
     const client = supabase;
     if (!client || !enabled) {
       setRooms([]);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -48,5 +61,5 @@ export function useRoomList(enabled: boolean): {
     };
   }, [enabled, refresh]);
 
-  return { rooms, loading, refresh };
+  return { rooms, loading, error, refresh };
 }

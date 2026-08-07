@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
 import { randomNicknameWord } from '../data/nicknameWords';
 import type { Verdict } from '../types';
 import type { GameWord } from '../data/decks';
@@ -111,15 +111,21 @@ function fromListRow(r: RoomListRow): RoomSummary {
   };
 }
 
-/** 방 목록. 내부적으로 만료된 방 정리(sweep_rooms)도 겸한다. */
-export async function listRooms(): Promise<RoomSummary[]> {
-  if (!supabase) return [];
+/**
+ * 방 목록. 내부적으로 만료된 방 정리(sweep_rooms)도 겸한다.
+ *
+ * ApiResult를 쓴다 — 예전엔 실패하면 그냥 []를 돌려줬는데, 그러면 "네트워크가 끊겼다"와
+ * "정말 열린 방이 없다"가 화면에서 구분이 안 돼(둘 다 "아직 열린 방이 없습니다") 인터넷이
+ * 끊긴 사용자가 엉뚱한 안내를 보게 된다.
+ */
+export async function listRooms(): Promise<ApiResult<RoomSummary[]>> {
+  if (!supabase) return { ok: false, error: '클라우드 설정이 없습니다.' };
   try {
     const { data, error } = await supabase.rpc('list_rooms');
-    if (error || !data) return [];
-    return (data as RoomListRow[]).map(fromListRow);
-  } catch {
-    return [];
+    if (error || !data) return { ok: false, error: error?.message ?? '목록을 불러오지 못했습니다.' };
+    return { ok: true, data: (data as RoomListRow[]).map(fromListRow) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
   }
 }
 
@@ -182,11 +188,19 @@ export async function createRoom(
       p_round_count: roundCount,
       p_name: displayName,
     });
-    if (error || !data) return { ok: false, error: error?.message ?? '방을 만들지 못했습니다.' };
+    if (error || !data) return { ok: false, error: mapCreateRoomError(error?.message) };
     return { ok: true, data: fromRoomRow(data as GameRoomRow) };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+function mapCreateRoomError(message?: string): string {
+  if (message?.includes('BAD_TITLE')) return '방 제목을 입력해 주세요.';
+  if (message?.includes('BAD_MAX')) return '정원은 2~8명 사이여야 합니다.';
+  if (message?.includes('BAD_SPEED')) return '올바르지 않은 속도 설정입니다.';
+  if (message?.includes('BAD_ROUNDS')) return '올바르지 않은 라운드 수입니다.';
+  return message ?? '방을 만들지 못했습니다.';
 }
 
 export async function joinRoom(roomId: string, displayName: string): Promise<ApiResult<GameRoom>> {
@@ -217,15 +231,65 @@ export async function leaveRoom(roomId: string): Promise<void> {
   }
 }
 
+/** supabase-js가 세션을 저장하는 localStorage 키를 그대로 재현한다 — SDK 기본값 규칙인
+ *  `sb-<프로젝트 참조>-auth-token`(node_modules/@supabase/supabase-js dist의
+ *  defaultStorageKey 계산과 동일). getSession()은 비동기라 pagehide 중엔 못 믿는다. */
+function readAccessTokenSync(): string | null {
+  if (!SUPABASE_URL) return null;
+  try {
+    const ref = new URL(SUPABASE_URL).hostname.split('.')[0];
+    const raw = localStorage.getItem(`sb-${ref}-auth-token`);
+    if (!raw) return null;
+    const session = JSON.parse(raw) as { access_token?: string };
+    return session.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 탭을 닫는 순간(pagehide, persisted=false)에 쓴다. supabase-js는 일반 fetch를 쓰는데
+ * 페이지가 언로드되면 아직 안 끝난 요청도 브라우저가 취소할 수 있다 — keepalive 옵션이
+ * 있는 원시 fetch로 RPC를 직접 쏴서 요청이 살아남게 한다. 응답은 기다리지 않는다(기다릴
+ * 수도 없다 — 페이지가 이미 사라지는 중). leave_room은 authenticated 전용이라 anon key
+ * 만으론 부족하고, 로그인 토큰이 동기적으로 안 구해지면(만료 등) 조용히 아무 일도 안 한다.
+ */
+export function leaveRoomBeacon(roomId: string): void {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  const token = readAccessTokenSync();
+  if (!token) return;
+  try {
+    void fetch(`${SUPABASE_URL}/rest/v1/rpc/leave_room`, {
+      method: 'POST',
+      keepalive: true,
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ p_room_id: roomId }),
+    });
+  } catch {
+    /* no-op — pagehide 중이라 실패해도 할 수 있는 게 없다 */
+  }
+}
+
 export async function kickPlayer(roomId: string, userId: string): Promise<ApiResult<void>> {
   if (!supabase) return { ok: false, error: '클라우드 설정이 없습니다.' };
   try {
     const { error } = await supabase.rpc('kick_player', { p_room_id: roomId, p_user_id: userId });
-    if (error) return { ok: false, error: error.message };
+    if (error) return { ok: false, error: mapKickError(error.message) };
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+function mapKickError(message?: string): string {
+  if (message?.includes('ROOM_NOT_FOUND')) return '이미 사라진 방입니다.';
+  if (message?.includes('NOT_HOST')) return '방장만 강제퇴장시킬 수 있습니다.';
+  if (message?.includes('CANNOT_KICK_SELF')) return '자기 자신은 강제퇴장시킬 수 없습니다.';
+  return message ?? '강제퇴장시키지 못했습니다.';
 }
 
 /** 접속 중임을 알린다. 실패해도 다음 주기에 다시 시도되므로 조용히 넘어간다. */
@@ -466,6 +530,10 @@ export async function setSource(
 function mapSetSourceError(message?: string): string {
   if (message?.includes('EMPTY_WORDS')) return '단어가 없는 단어장입니다.';
   if (message?.includes('TOO_MANY_WORDS')) return '단어장이 너무 큽니다(최대 300개).';
+  if (message?.includes('NOT_MEMBER')) return '방에 들어가 있어야 단어장을 고를 수 있습니다.';
+  if (message?.includes('BAD_KIND') || message?.includes('BAD_WORDS')) {
+    return '단어장을 등록하지 못했습니다.';
+  }
   return message ?? '단어장을 등록하지 못했습니다.';
 }
 
@@ -486,6 +554,7 @@ export async function startGame(roomId: string): Promise<ApiResult<GameRoom>> {
 }
 
 function mapStartGameError(message?: string): string {
+  if (message?.includes('ROOM_NOT_FOUND')) return '이미 사라진 방입니다.';
   if (message?.includes('NOT_HOST')) return '방장만 시작할 수 있습니다.';
   if (message?.includes('ALREADY_PLAYING')) return '이미 게임이 진행 중입니다.';
   if (message?.includes('NOT_ENOUGH_PLAYERS')) return '최소 2명이 있어야 시작할 수 있습니다.';
@@ -525,7 +594,7 @@ export async function submitAnswer(
       p_input: input,
       p_verdict: verdict,
     });
-    if (error || !data) return { ok: false, error: error?.message ?? '제출하지 못했습니다.' };
+    if (error || !data) return { ok: false, error: mapSubmitError(error?.message) };
     const row = data as RoomAnswerRow;
     return {
       ok: true,
@@ -540,6 +609,19 @@ export async function submitAnswer(
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+/** WINDOW_CLOSED는 "타이머가 넘어간 뒤 뒤늦게 도착한 제출"이라 흔히 있는 정상 상황이다
+ *  (라운드 강제 전환·네트워크 지연 등) — useGroupGame이 이 문구와 비교해 조용히
+ *  넘길지 판단한다. 상수로 공유해 두 파일이 서로 다른 문자열을 갖는 사고를 막는다. */
+export const SUBMIT_WINDOW_CLOSED_MESSAGE = '이미 다음 라운드로 넘어갔습니다.';
+
+function mapSubmitError(message?: string): string {
+  if (message?.includes('WINDOW_CLOSED')) return SUBMIT_WINDOW_CLOSED_MESSAGE;
+  if (message?.includes('NOT_PLAYING')) return '게임이 진행 중이 아닙니다.';
+  if (message?.includes('NOT_MEMBER')) return '방에 들어가 있어야 답을 낼 수 있습니다.';
+  if (message?.includes('BAD_VERDICT') || message?.includes('BAD_ROUND')) return '제출하지 못했습니다.';
+  return message ?? '제출하지 못했습니다.';
 }
 
 /** 이번 판(game_no)의 답안 전체. 실시간 구독(reveal 화면)과 결과 화면 양쪽에서 쓴다. */

@@ -25,7 +25,7 @@ export default function RoomListScreen({ sync, onEnterRoom }: Props) {
   const [creating, setCreating] = useState(false);
   const [authError, setAuthError] = useState('');
   // 훅은 조건 분기보다 위에서 항상 호출한다 — enabled=false면 훅 내부에서 그냥 쉰다.
-  const { rooms, loading, refresh } = useRoomList(Boolean(sync.session));
+  const { rooms, loading, error: listError, refresh } = useRoomList(Boolean(sync.session));
   const { displayName, nicknameSet, loading: nickLoading, save: saveNickname } = useNickname(
     sync.session?.user.id,
   );
@@ -107,7 +107,18 @@ export default function RoomListScreen({ sync, onEnterRoom }: Props) {
         + 방 만들기
       </button>
 
-      {loading ? (
+      {/* "정말 방이 없다"와 "목록을 못 불러왔다"는 다른 상황이라 구분해서 보여준다 —
+          둘 다 빈 화면으로 뭉뚱그리면 인터넷이 끊긴 사용자가 "방이 없나 보다"로 오해한다. */}
+      {listError ? (
+        <div className="empty-cta">
+          <p className="empty-cta-icon"><Icon name="people" /></p>
+          <p>목록을 불러오지 못했습니다.</p>
+          <p className="muted">{listError}</p>
+          <button className="btn primary" onClick={refresh}>
+            다시 시도
+          </button>
+        </div>
+      ) : loading ? (
         <p className="muted">방을 불러오는 중…</p>
       ) : rooms.length === 0 ? (
         <div className="empty-cta">

@@ -9,8 +9,10 @@ import {
   joinRoom,
   kickPlayer,
   leaveRoom,
+  leaveRoomBeacon,
   reconcileRoom,
   sendMessage,
+  type ApiResult,
   type GameRoom,
   type RoomMessage,
   type RoomPlayer,
@@ -29,8 +31,10 @@ export interface UseGroupRoomResult {
   /** 방장이 강제퇴장시킨 경우. */
   kickedOut: boolean;
   isHost: boolean;
-  send: (body: string) => Promise<void>;
-  kick: (userId: string) => Promise<void>;
+  /** 실패해도 예전엔 조용히 삼켜서 메시지가 그냥 증발했다 — 이제 결과를 돌려주고
+   *  ChatPanel이 직접 에러를 보여준다. */
+  send: (body: string) => Promise<ApiResult<void>>;
+  kick: (userId: string) => Promise<ApiResult<void>>;
   exit: () => Promise<void>;
 }
 
@@ -149,6 +153,19 @@ export function useGroupRoom(
     return () => window.clearInterval(t);
   }, [roomId, userId]);
 
+  // 탭을 완전히 닫을 때는(pagehide) 60초 하트비트 타임아웃을 기다리지 않고 즉시 나간다.
+  // persisted===true는 bfcache로 잠깐 백그라운드에 들어간 것뿐(iOS Safari에서 앱을
+  // 잠깐 다른 화면으로 넘겨도 pagehide가 뜬다) — 이 경우까지 나가 버리면 "잠깐 딴 데
+  // 봤다고 방에서 튕기는" 버그가 된다. persisted===false(진짜 언로드)일 때만 쏜다.
+  useEffect(() => {
+    if (!roomId || !userId) return;
+    const onPageHide = (e: PageTransitionEvent) => {
+      if (!e.persisted) leaveRoomBeacon(roomId);
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, [roomId, userId]);
+
   // 방장이 신선도 창을 벗어나면(브라우저를 그냥 닫은 경우) 랜덤 지터 후 승계를 시도한다.
   // 여러 참가자가 동시에 호출해도 reconcile_room은 단일 UPDATE라 멱등하다.
   useEffect(() => {
@@ -172,18 +189,19 @@ export function useGroupRoom(
     everSawSelfRef.current && Boolean(userId) && !players.some((p) => p.userId === userId) && !roomGone;
 
   const send = useCallback(
-    async (body: string) => {
-      if (!roomId || !userId) return;
-      await sendMessage(roomId, userId, displayName, body);
+    async (body: string): Promise<ApiResult<void>> => {
+      if (!roomId || !userId) return { ok: false, error: '방에 들어가 있어야 보낼 수 있습니다.' };
+      return sendMessage(roomId, userId, displayName, body);
     },
     [roomId, userId, displayName],
   );
 
   const kick = useCallback(
-    async (targetUserId: string) => {
-      if (!roomId) return;
-      await kickPlayer(roomId, targetUserId);
+    async (targetUserId: string): Promise<ApiResult<void>> => {
+      if (!roomId) return { ok: false, error: '방을 찾을 수 없습니다.' };
+      const res = await kickPlayer(roomId, targetUserId);
       void refetchAll();
+      return res;
     },
     [roomId, refetchAll],
   );

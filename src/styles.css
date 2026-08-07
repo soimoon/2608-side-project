@@ -1086,7 +1086,8 @@ input[type='radio'] {
 
 /* ---------- 퀴즈 ---------- */
 .quiz {
-  min-height: 100vh;
+  min-height: 100vh; /* dvh 미지원 브라우저용 폴백 — 나중 선언이 이긴다 */
+  min-height: 100dvh; /* 모바일 주소창 높이만큼 실제 화면이 짧아지는 걸 반영 */
   justify-content: flex-start;
   gap: 14px;
 }
@@ -1622,7 +1623,10 @@ input[type='radio'] {
 /* ---------- 단체게임: 방 화면(로비) — 채팅이 메인이 되도록 높이를 고정하고
    채팅 목록만 내부 스크롤되게 한다. 실제 채팅방에 들어와 있는 느낌을 주기 위함. */
 .room-layout {
+  /* dvh 미지원 브라우저용 폴백을 먼저 두고 dvh가 뒤에서 덮어쓰게 한다 — 모바일
+     주소창 때문에 100vh 기준으로 잡으면 화면 아래쪽(채팅 입력칸 등)이 잘렸다. */
   height: calc(100vh - var(--bottom-nav-h));
+  height: calc(100dvh - var(--bottom-nav-h));
   padding-bottom: 16px;
   overflow: hidden;
 }
@@ -1656,6 +1660,47 @@ input[type='radio'] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* flex 자식은 min-width 기본값이 auto라, 이게 없으면 내용 너비 아래로 안 눌려서
+     overflow:hidden·text-overflow:ellipsis가 실제로는 발동을 안 한다 — 옆의 "바꾸기"
+     버튼이 좁은 화면에서 밀려나거나 줄이 넘쳤다. */
+  min-width: 0;
+}
+
+/* ---------- 좁은 화면(휴대폰) — 단체게임 방·퀴즈 화면은 이 CSS 전체에서 지금까지
+   미디어쿼리가 하나도 없었다. 마스크 슬롯·타이머·리액션 버튼이 360px 폭에서
+   서로 눌리거나 어색하게 줄바꿈되는 걸 여기서 잡는다. */
+@media (max-width: 480px) {
+  .topbar {
+    gap: 8px;
+  }
+  .topbar-right {
+    gap: 6px;
+  }
+
+  /* 긴 단어의 마스크 슬롯이 min-width 때문에 화면 폭을 넘겨 어색하게 줄바꿈되던 것. */
+  .slot {
+    min-width: 14px;
+  }
+  .slot.space {
+    min-width: 18px;
+  }
+
+  .quiz-top {
+    gap: 8px;
+  }
+  .clock {
+    min-width: 52px;
+    font-size: 1rem;
+  }
+
+  /* 리액션 버튼 5개 × 큰 패딩이 360px 폭에서 거의 꽉 찼다. */
+  .reaction-bar {
+    gap: 6px;
+  }
+  .reaction-btn {
+    font-size: 1.25rem;
+    padding: 6px 8px;
+  }
 }
 
 /* ---------- 단체게임: 채팅 ---------- */

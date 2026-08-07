@@ -22,12 +22,20 @@ export default function InviteFriendsModal({ roomId, onClose, onInvited }: Props
   const [loading, setLoading] = useState(true);
   const [invitedIds, setInvitedIds] = useState<string[]>([]);
   const [error, setError] = useState('');
+  // "친구가 진짜 없음"과 "목록을 못 불러옴"을 구분한다 — 실패해도 목록은 그대로 두고
+  // (5초 폴링 중 잠깐 끊긴 걸로 목록이 깜빡이며 비면 더 거슬린다) 이 문구만 얹는다.
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(
     async (silent = false) => {
       if (!silent) setLoading(true);
-      const list = await listInvitableFriends(roomId);
-      setFriends(list);
+      const res = await listInvitableFriends(roomId);
+      if (res.ok) {
+        setFriends(res.data ?? []);
+        setLoadError('');
+      } else {
+        setLoadError(res.error ?? '목록을 불러오지 못했습니다.');
+      }
       setLoading(false);
     },
     [roomId],
@@ -59,6 +67,14 @@ export default function InviteFriendsModal({ roomId, onClose, onInvited }: Props
 
         {loading ? (
           <p className="muted">불러오는 중…</p>
+        ) : loadError && friends.length === 0 ? (
+          <div className="empty-cta">
+            <p className="empty-cta-icon">
+              <Icon name="people" />
+            </p>
+            <p>목록을 불러오지 못했습니다.</p>
+            <p className="muted">{loadError}</p>
+          </div>
         ) : friends.length === 0 ? (
           <div className="empty-cta">
             <p className="empty-cta-icon">

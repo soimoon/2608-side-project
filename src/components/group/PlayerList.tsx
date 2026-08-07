@@ -17,6 +17,7 @@ export default function PlayerList({ players, hostId, me, isHost, maxPlayers, on
       <h3>
         참가자 {players.length}/{maxPlayers}
       </h3>
+      {players.length === 0 && <p className="muted">참가자를 불러오는 중…</p>}
       <ul className="player-list">
         {players.map((p) => {
           const online = Date.now() - p.lastSeenAt < FRESH_WINDOW_MS;

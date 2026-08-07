@@ -10,6 +10,7 @@ import ChatPanel from './ChatPanel';
 import NicknameGateModal from './NicknameGateModal';
 import SourcePicker from './SourcePicker';
 import InviteFriendsModal from './InviteFriendsModal';
+import Icon from '../Icon';
 
 const SPEED_LABEL: Record<string, string> = { fast: '빠름(8초)', normal: '보통(12초)', relaxed: '여유(16초)' };
 
@@ -38,6 +39,7 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
   const [starting, setStarting] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteNotice, setInviteNotice] = useState('');
+  const [kickError, setKickError] = useState('');
   // null이면 "아직 안 골랐으면 펼치고, 골랐으면 접는다"는 자동 규칙을 따른다.
   // 사용자가 토글을 직접 누르면 그 뒤로는 이 값이 자동 규칙을 덮어쓴다.
   const [sourcePickerOverride, setSourcePickerOverride] = useState<boolean | null>(null);
@@ -60,6 +62,23 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
     if (room?.status === 'playing') onGameStart(roomId);
   }, [room?.status, roomId, onGameStart]);
 
+  // 알림 문구들이 영원히 안 사라지던 문제 — 몇 초 뒤 자동으로 지운다.
+  useEffect(() => {
+    if (!startError) return;
+    const t = window.setTimeout(() => setStartError(''), 5_000);
+    return () => window.clearTimeout(t);
+  }, [startError]);
+  useEffect(() => {
+    if (!inviteNotice) return;
+    const t = window.setTimeout(() => setInviteNotice(''), 5_000);
+    return () => window.clearTimeout(t);
+  }, [inviteNotice]);
+  useEffect(() => {
+    if (!kickError) return;
+    const t = window.setTimeout(() => setKickError(''), 5_000);
+    return () => window.clearTimeout(t);
+  }, [kickError]);
+
   async function handleLeave() {
     await exit();
     onBack();
@@ -72,6 +91,29 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
     setStarting(false);
     if (!res.ok) setStartError(res.error ?? '시작하지 못했습니다.');
     // 성공하면 room.status가 realtime으로 'playing'이 되어 위 useEffect가 알아서 넘긴다.
+  }
+
+  async function handleKick(targetUserId: string) {
+    setKickError('');
+    const res = await kick(targetUserId);
+    if (!res.ok) setKickError(res.error ?? '강제퇴장시키지 못했습니다.');
+  }
+
+  // 배포에 클라우드 설정 자체가 없으면(.env.local 미설정) 여기까지 오는 모든 걸
+  // 그만두는 게 맞다 — 로그인 시도조차 의미가 없다. RoomListScreen엔 이 검사가
+  // 있는데 여기 없어서, 그 화면을 거치지 않고 바로 들어오면(직접 링크 등)
+  // "입장 준비 중…"에 영원히 갇히는 문제가 있었다.
+  if (!sync.configured) {
+    return (
+      <div className="screen">
+        <div className="empty-cta">
+          <p className="empty-cta-icon">
+            <Icon name="people" />
+          </p>
+          <p>이 배포에서는 단체게임을 쓸 수 없습니다.</p>
+        </div>
+      </div>
+    );
   }
 
   if (!session) {
@@ -221,13 +263,19 @@ export default function RoomScreen({ roomId, sync, words, decks, onBack, onGameS
         </p>
       )}
 
+      {kickError && (
+        <p className="notice-bar" role="status">
+          {kickError}
+        </p>
+      )}
+
       <PlayerList
         players={players}
         hostId={room.hostId}
         me={userId ?? ''}
         isHost={isHost}
         maxPlayers={room.maxPlayers}
-        onKick={kick}
+        onKick={handleKick}
       />
 
       <div className="source-summary">

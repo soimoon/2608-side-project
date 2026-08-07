@@ -184,14 +184,19 @@ interface InvitableRow {
 
 /** 지금 이 방으로 불러도 방해가 안 되는 친구만("개인 퀴즈 중 아님 + 접속 중 + 다른
  *  방 없음 + 이 방을 차단 안 함" 네 조건, 서버가 검사). */
-export async function listInvitableFriends(roomId: string): Promise<InvitableFriend[]> {
-  if (!supabase) return [];
+/** 실패와 "지금 초대할 친구가 없음"을 구분하려고 ApiResult를 쓴다 — groupApi.ts의
+ *  listRooms()와 같은 이유(리스트 참고: 예전엔 실패해도 []를 돌려줘 구분이 안 됐다). */
+export async function listInvitableFriends(roomId: string): Promise<ApiResult<InvitableFriend[]>> {
+  if (!supabase) return { ok: false, error: '클라우드 설정이 없습니다.' };
   try {
     const { data, error } = await supabase.rpc('list_invitable_friends', { p_room_id: roomId });
-    if (error || !data) return [];
-    return (data as InvitableRow[]).map((r) => ({ userId: r.user_id, displayName: r.display_name }));
-  } catch {
-    return [];
+    if (error || !data) return { ok: false, error: error?.message ?? '목록을 불러오지 못했습니다.' };
+    return {
+      ok: true,
+      data: (data as InvitableRow[]).map((r) => ({ userId: r.user_id, displayName: r.display_name })),
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
   }
 }
 
@@ -246,6 +251,11 @@ export async function fetchPendingInvites(userId: string): Promise<GameInvite[]>
 /** 초대에 답한다. 수락해도 여기서 방에 넣어주진 않는다 — 정원 검사가 join_room 한
  *  곳에만 있어야 경쟁 조건이 갈라지지 않으므로, 호출부가 이어서 join_room을 부른다.
  *  성공하면 이동할 방 id를 돌려준다. */
+function mapRespondInviteError(message?: string): string {
+  if (message?.includes('NO_INVITE')) return '이미 처리되었거나 사라진 초대입니다.';
+  return message ?? '처리하지 못했습니다.';
+}
+
 export async function respondInvite(
   inviteId: number,
   accept: boolean,
@@ -258,7 +268,7 @@ export async function respondInvite(
       p_accept: accept,
       p_mute: mute,
     });
-    if (error || !data) return { ok: false, error: error?.message ?? '처리하지 못했습니다.' };
+    if (error || !data) return { ok: false, error: mapRespondInviteError(error?.message) };
     return { ok: true, data: data as string };
   } catch (e) {
     return { ok: false, error: String(e) };

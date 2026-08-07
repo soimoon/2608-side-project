@@ -3,6 +3,11 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+/** groupApi.ts의 leaveRoomBeacon()이 keepalive fetch를 직접 쏘는 데 필요해서 내보낸다 —
+ *  supabase-js SDK는 페이지가 죽는 순간(pagehide) 요청까지 같이 죽을 수 있어 못 쓴다. */
+export const SUPABASE_URL = url;
+export const SUPABASE_ANON_KEY = anonKey;
+
 /**
  * .env.local에 클라우드 설정이 없으면 앱은 게스트(로컬 전용) 모드로 동작한다.
  * 로그인·동기화 UI는 이 값을 보고 자기 자신을 통째로 숨긴다 — 계정을 안 쓰는

@@ -4,6 +4,8 @@ import { judge, normalize } from '../lib/judge';
 import { maskWord } from '../lib/mask';
 import { lookupCache, playAudio } from '../lib/pronounce';
 import PronounceButton from './PronounceButton';
+import MaskSlots from './MaskSlots';
+import TimerBar, { timerStageOf } from './TimerBar';
 
 interface QItem {
   word: Word;
@@ -199,9 +201,7 @@ export default function QuizScreen({
   const total = queue.length;
   const extra = total - words.length;
   const ratio = Math.max(0, remaining / settings.seconds);
-  // 신호등처럼: 시간이 넉넉하면 초록, 절반 아래로 내려가면 노랑, 1/4 아래면 빨강(+깜빡임).
-  // 전체는 핑크 테마여도 타이머는 상태를 알리는 용도라 통용되는 색 규칙을 그대로 쓴다.
-  const timerStage = ratio <= 0.25 ? 'urgent' : ratio <= 0.5 ? 'warn' : 'ok';
+  const timerStage = timerStageOf(ratio);
   const retypeMatched = phase === 'retype' && normalize(input) === normalize(answer);
 
   return (
@@ -219,12 +219,7 @@ export default function QuizScreen({
         </span>
       </div>
 
-      <div className="timer-track">
-        <div
-          className={`timer-fill ${timerStage}`}
-          style={{ transform: `scaleX(${phase === 'answering' ? ratio : 0})` }}
-        />
-      </div>
+      <TimerBar ratio={phase === 'answering' ? ratio : 0} />
 
       <div className="quiz-body">
         {item.word.ko.length > 1 ? (
@@ -240,17 +235,7 @@ export default function QuizScreen({
           <p className="meaning">{item.word.ko[0]}</p>
         )}
 
-        <div className="mask" aria-label={`${answer.length}글자`}>
-          {[...answer].map((ch, i) =>
-            ch === ' ' ? (
-              <span key={i} className="slot space" />
-            ) : (
-              <span key={i} className={`slot ${revealed[i] ? 'shown' : ''}`}>
-                {phase === 'answering' ? (revealed[i] ? ch : '') : ch}
-              </span>
-            ),
-          )}
-        </div>
+        <MaskSlots text={answer} revealed={revealed} revealAll={phase !== 'answering'} />
         <p className="len-hint muted">{answer.replace(/\s/g, '').length}글자</p>
 
         <input

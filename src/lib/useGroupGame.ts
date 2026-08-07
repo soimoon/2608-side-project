@@ -9,6 +9,7 @@ import {
   finishGame,
   heartbeat,
   submitAnswer,
+  SUBMIT_WINDOW_CLOSED_MESSAGE,
   type GameRoom,
   type RoomAnswer,
   type RoomPlayer,
@@ -32,6 +33,10 @@ export interface UseGroupGameResult {
   /** 최근 3초 안에 도착한 이모지 리액션만. DB에 저장되지 않는 휘발성 브로드캐스트다. */
   reactions: Reaction[];
   loading: boolean;
+  /** 마지막 제출 실패 사유. WINDOW_CLOSED(뒤늦은 정상 제출)는 여기 안 실린다 — 매
+   *  라운드 전환 때마다 겁주는 에러 문구가 뜨면 안 되므로 조용히 삼킨다. 몇 초 뒤
+   *  자동으로 비워진다. */
+  submitError: string | null;
   submit: (roundIndex: number, input: string, verdict: Verdict) => Promise<RoomAnswer | null>;
   finish: () => Promise<void>;
   sendReaction: (emoji: string) => void;
@@ -48,6 +53,7 @@ export function useGroupGame(roomId: string | null, userId: string | undefined):
   const [answers, setAnswers] = useState<RoomAnswer[]>([]);
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
 
   const refetchAll = useCallback(async () => {
@@ -149,10 +155,18 @@ export function useGroupGame(roomId: string | null, userId: string | undefined):
         setAnswers((prev) => [...prev.filter((a) => a.roundIndex !== roundIndex || a.userId !== userId), res.data!]);
         return res.data;
       }
+      if (res.error && res.error !== SUBMIT_WINDOW_CLOSED_MESSAGE) setSubmitError(res.error);
       return null;
     },
     [roomId, userId],
   );
+
+  // 몇 초 뒤 자동으로 지운다 — 다른 notice-bar들과 같은 관례(예: RoomScreen).
+  useEffect(() => {
+    if (!submitError) return;
+    const t = window.setTimeout(() => setSubmitError(null), 5_000);
+    return () => window.clearTimeout(t);
+  }, [submitError]);
 
   const finish = useCallback(async () => {
     if (!roomId) return;
@@ -170,5 +184,5 @@ export function useGroupGame(roomId: string | null, userId: string | undefined):
     [userId],
   );
 
-  return { room, players, answers, reactions, loading, submit, finish, sendReaction };
+  return { room, players, answers, reactions, loading, submitError, submit, finish, sendReaction };
 }
