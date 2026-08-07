@@ -128,30 +128,39 @@ export default function QuizScreen({
   const timeoutHandler = useRef<() => void>(() => {});
   timeoutHandler.current = () => submit('timeout', input);
 
+  // 카운트다운 시작 기준값을 ref로 들고 있는다 — setRemaining은 비동기라, 새 문제로
+  // 넘어가는 순간 "리셋" 효과와 "틱 시작" 효과가 같은 커밋에서 같이 도는데, 틱 쪽이
+  // state(remaining)를 읽으면 리셋이 아직 반영되기 전의(직전 문제가 끝났을 때 남아
+  // 있던, 0에 가까울 수도 있는) 값을 그대로 잡아버린다. 그러면 새 문제가 시작하자마자
+  // 곧장 시간 초과 처리되는 버그가 난다 — ref는 동기적으로 갱신되므로 이 경쟁을 없앤다.
+  const remainingRef = useRef(settings.seconds);
+
   // 새 문제가 시작될 때만 제한 시간을 리셋한다 — 일시중지 토글은 이 효과를 안 건드린다.
   useEffect(() => {
     if (phase !== 'answering') return;
     questionStart.current = performance.now();
+    remainingRef.current = settings.seconds;
     setRemaining(settings.seconds);
   }, [idx, phase, settings.seconds]);
 
-  // 카운트다운 진행. paused가 true인 동안엔 그냥 멈춰 있는다 — remaining을 deps에
-  // 넣지 않는 게 핵심이다(넣으면 100ms마다 새 deadline을 계산해 타이머가 무한히
-  // 늘어난다). 재개하면 그 순간의 remaining부터 다시 이어서 잰다.
+  // 카운트다운 진행. paused가 true인 동안엔 그냥 멈춰 있는다. remainingRef.current를
+  // 기준으로 deadline을 잡으므로, 위 리셋 효과가 먼저 갱신해 둔 값을 그대로 이어받는다
+  // (선언 순서상 리셋 효과가 먼저 실행된다). 재개하면 멈췄던 그 지점부터 다시 잰다.
   useEffect(() => {
     if (phase !== 'answering' || paused) return;
-    const deadline = performance.now() + remaining * 1000;
+    const deadline = performance.now() + remainingRef.current * 1000;
 
     const tick = window.setInterval(() => {
-      setRemaining(Math.max(0, (deadline - performance.now()) / 1000));
+      const left = Math.max(0, (deadline - performance.now()) / 1000);
+      remainingRef.current = left; // 언제 멈추더라도 최신값을 들고 있게 계속 갱신.
+      setRemaining(left);
     }, 100);
-    const expire = window.setTimeout(() => timeoutHandler.current(), remaining * 1000);
+    const expire = window.setTimeout(() => timeoutHandler.current(), remainingRef.current * 1000);
 
     return () => {
       window.clearInterval(tick);
       window.clearTimeout(expire);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, phase, paused]);
 
   /** 일시중지를 켜고 끈다. 재개 시 멈춰 있던 구간만큼 questionStart를 밀어 통계용
