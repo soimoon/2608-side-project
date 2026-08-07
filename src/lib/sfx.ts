@@ -12,7 +12,8 @@ const MASTER_VOLUME = 0.5;
 
 const SOUNDS = {
   correct: { file: 'correct.ogg', volume: 1 },
-  wrong: { file: 'wrong.ogg', volume: 1 },
+  /** 정답보다 한 단계 조용하게. */
+  wrong: { file: 'wrong.ogg', volume: 0.8 },
   /** 정답/오답보다 한 단계 더 조용하게 — 3초 동안 세 번이나 울리는 소리라 이만큼
    *  낮추지 않으면 정답/오답보다 오히려 더 거슬린다. */
   tick: { file: 'tick.ogg', volume: 0.75 },
@@ -25,16 +26,29 @@ export type SfxName = keyof typeof SOUNDS;
  * 여기서는 겹쳐 재생돼야 자연스럽다(예: 그룹게임에서 여러 명이 동시에 정답을
  * 맞히거나, tick이 채 안 끝났는데 다음 tick이 울리는 경우). 실패해도 학습을
  * 막으면 안 되므로 조용히 무시한다.
+ *
+ * 재생이 끝나면(또는 실패하면) resolve되는 Promise를 돌려준다 — 발음 자동재생이
+ * 이 소리와 겹치지 않고 끝난 뒤에 이어서 나오게 하려는 용도다(QuizScreen 참고).
+ * 'ended' 이벤트가 어떤 이유로든 안 불릴 경우를 대비해 1.5초 안전망도 둔다.
  */
-export function playSfx(name: SfxName): void {
-  try {
-    const { file, volume } = SOUNDS[name];
-    const audio = new Audio(`${import.meta.env.BASE_URL}sfx/${file}`);
-    audio.volume = MASTER_VOLUME * volume;
-    void audio.play().catch(() => {
-      /* 자동재생 차단 등 — 사용자가 이미 입력을 치고 있었을 것이므로 상호작용은 있었을 가능성이 높다 */
-    });
-  } catch {
-    /* 효과음 실패가 학습을 막아서는 안 된다 */
-  }
+export function playSfx(name: SfxName): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    try {
+      const { file, volume } = SOUNDS[name];
+      const audio = new Audio(`${import.meta.env.BASE_URL}sfx/${file}`);
+      audio.volume = MASTER_VOLUME * volume;
+      audio.addEventListener('ended', finish, { once: true });
+      audio.addEventListener('error', finish, { once: true });
+      void audio.play().catch(finish);
+      window.setTimeout(finish, 1500);
+    } catch {
+      finish();
+    }
+  });
 }

@@ -62,6 +62,9 @@ export default function QuizScreen({
   const seed = useRef(Math.floor(Math.random() * 2 ** 31));
   /** 현재 문제에 이미 답을 기록했는지. Enter와 시간 초과의 이중 제출을 막는다. */
   const answered = useRef(false);
+  /** 방금 재생한 정답/오답 효과음이 끝나는 시점. 발음 자동재생이 이 효과음과 겹치지
+   *  않고 끝난 뒤에 이어서 나오게 하는 데 쓴다(아래 발음 재생 효과 참고). */
+  const sfxDone = useRef<Promise<void>>(Promise.resolve());
 
   const item = queue[idx];
   const answer = item?.word.en ?? '';
@@ -95,8 +98,9 @@ export default function QuizScreen({
       if (answered.current) return;
       answered.current = true;
       // near·wrong·timeout을 굳이 구분하지 않는다 — 셋 다 "정답이 아니다"라는 점에서
-      // 사용자에게 같은 신호면 충분하다는 판단.
-      playSfx(v === 'correct' ? 'correct' : 'wrong');
+      // 사용자에게 같은 신호면 충분하다는 판단. 끝나는 시점을 기억해 뒀다가 발음
+      // 자동재생이 이 소리와 안 겹치고 이어서 나오게 한다.
+      sfxDone.current = playSfx(v === 'correct' ? 'correct' : 'wrong');
 
       const attempt: Attempt = {
         wordId: item.word.id,
@@ -172,7 +176,7 @@ export default function QuizScreen({
         !tickedSecondsRef.current.has(wholeSecond)
       ) {
         tickedSecondsRef.current.add(wholeSecond);
-        playSfx('tick');
+        void playSfx('tick');
       }
     }, 100);
     const expire = window.setTimeout(() => timeoutHandler.current(), remainingRef.current * 1000);
@@ -211,6 +215,9 @@ export default function QuizScreen({
    * 채점되는 순간 발음을 들려준다 — 맞혔든 틀렸든. 방금 떠올린 철자와 소리를 같이
    * 넣어야 기억에 남는다.
    *
+   * 정답/오답 효과음과 동시에 나면 서로 묻혀서 오히려 방해된다는 피드백이 있어서,
+   * sfxDone(효과음이 끝나는 시점)을 기다렸다가 이어서 재생한다.
+   *
    * 문제당 한 번만 재생한다. 퀴즈 도중 발음 미리 받기가 끝나면 pronunciations가
    * 바뀌는데, 그때 이미 피드백 화면이면 같은 소리가 다시 나기 때문이다.
    */
@@ -221,14 +228,16 @@ export default function QuizScreen({
     if (!pron?.audioUrl) return;
     if (audioPlayedFor.current === idx) return;
     audioPlayedFor.current = idx;
-    playAudio(pron.audioUrl);
+    const url = pron.audioUrl;
+    void sfxDone.current.then(() => playAudio(url));
   }, [idx, phase, verdict, pron, settings.autoPlayAudio]);
 
   // 정답이면 잠깐 보여주고 자동으로 넘어간다.
   useEffect(() => {
     if (phase !== 'feedback' || verdict !== 'correct') return;
-    // 발음이 나가는 중이면 소리가 잘리지 않게 조금 더 기다린다 (단어 발음은 보통 1초 안쪽).
-    const t = window.setTimeout(advance, willPlayAudio ? 1200 : 550);
+    // 이제 발음이 효과음 뒤에 이어서 나오므로(위 효과 참고), 효과음 재생 시간만큼
+    // 대기 시간을 더 늘렸다 — 안 그러면 발음이 채 끝나기 전에 다음 문제로 넘어간다.
+    const t = window.setTimeout(advance, willPlayAudio ? 2000 : 550);
     return () => window.clearTimeout(t);
   }, [phase, verdict, advance, willPlayAudio]);
 

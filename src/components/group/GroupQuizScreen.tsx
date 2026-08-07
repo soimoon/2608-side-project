@@ -90,7 +90,7 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
     const key = `${phase.index}:${secondsLeft}`;
     if (tickedRef.current.has(key)) return;
     tickedRef.current.add(key);
-    playSfx('tick');
+    void playSfx('tick');
   }, [phase]);
 
   // reveal로 넘어가는 순간, 내가 이번 라운드에 낸 답의 판정으로 정답/오답 효과음을
@@ -100,7 +100,7 @@ export default function GroupQuizScreen({ roomId, sync, onEnded, onLeft }: Props
     if (phase.kind !== 'reveal' || phase.index === playedRevealRef.current) return;
     playedRevealRef.current = phase.index;
     const mine = answers.find((a) => a.roundIndex === phase.index && a.userId === userId);
-    if (mine) playSfx(mine.verdict === 'correct' ? 'correct' : 'wrong');
+    if (mine) void playSfx(mine.verdict === 'correct' ? 'correct' : 'wrong');
   }, [phase, answers, userId]);
 
   async function doSubmit(idx: number, value: string, verdict: Verdict) {
