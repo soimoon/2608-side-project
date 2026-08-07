@@ -1284,6 +1284,13 @@ create table if not exists mission_rewards (
   amount int not null check (amount > 0)
 );
 
+alter table mission_rewards enable row level security;
+create policy "mission_rewards_select_all" on mission_rewards
+  for select using (true);
+-- insert/update 정책 없음 — decor_items와 같은 이유. 이 표를 클라이언트가 직접
+-- 고쳐 쓸 수 있으면 보상액을 조작해 부풀린 뒤 미션을 완료하는 경로가 생긴다.
+-- 값을 바꾸는 건 이 파일의 insert 문으로만 한다.
+
 -- 값은 src/lib/attendance.ts의 MISSIONS 레지스트리 표시값과 반드시 같아야 한다 —
 -- 화면에 보이는 보상액과 실제 지급액이 다르면 안 된다(꾸미기 아이템의 decor_items
 -- 표와 정확히 같은 이유). 새 미션을 추가할 땐 두 곳을 같이 고칠 것.
