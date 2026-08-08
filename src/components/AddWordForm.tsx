@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import type { Word } from '../types';
 import { makeWord } from '../lib/storage';
+import {
+  fetchDefinition,
+  formatWithReferences,
+  isShowSynonymsEnabled,
+  setShowSynonymsEnabled,
+  stripReferences,
+} from '../lib/defineApi';
 
 interface Props {
   /** 선택 가능한 단어장 목록. hideDeckPicker가 true면 화면에 안 보이지만 그래도 필요 없다. */
@@ -33,6 +40,19 @@ export default function AddWordForm({
   const [en, setEn] = useState('');
   // "+ 뜻 추가" 버튼을 누를 때마다 빈 칸이 하나씩 늘어난다.
   const [ko, setKo] = useState<string[]>(['']);
+  // "뜻 검색" 결과. 자동으로 안 채워진다 — 버튼을 눌러야만 조회된다(출시 전
+  // 무료 테스트 단계라 외부 API 호출을 최소화하려는 의도적 설계).
+  const [searching, setSearching] = useState(false);
+  // 항상 원본(관련어·유의어·반의어 참조 포함)을 들고 있는다 — 토글을 바꿔도 재조회 없이
+  // 그 자리에서 다시 정리해 보여줄 수 있게.
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [searchError, setSearchError] = useState('');
+  const [showSynonyms, setShowSynonyms] = useState(isShowSynonymsEnabled);
+
+  function toggleShowSynonyms(v: boolean) {
+    setShowSynonyms(v);
+    setShowSynonymsEnabled(v);
+  }
 
   function updateKo(i: number, value: string) {
     setKo((prev) => prev.map((m, idx) => (idx === i ? value : m)));
@@ -46,6 +66,41 @@ export default function AddWordForm({
     setKo((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)));
   }
 
+  /** en이 바뀌면 이전 단어의 검색 결과가 남아 헷갈리지 않게 지운다. */
+  function updateEn(value: string) {
+    setEn(value);
+    setSuggestions([]);
+    setSearchError('');
+  }
+
+  async function searchMeaning() {
+    const enTrim = en.trim();
+    if (!enTrim || searching) return;
+    setSearching(true);
+    setSearchError('');
+    const res = await fetchDefinition(enTrim);
+    setSearching(false);
+    if (!res.ok) {
+      setSuggestions([]);
+      setSearchError(res.error ?? '뜻을 가져오지 못했습니다.');
+      return;
+    }
+    setSuggestions(res.meanings);
+  }
+
+  /** 검색 결과 중 하나를 뜻 목록에 채워 넣는다 — 비어 있는 첫 칸을 채우고, 없으면
+   *  새 줄을 만든다. 넣고 나면 그 후보는 목록에서 지운다(중복 추가 방지). raw는
+   *  원본 그대로고, 실제로 넣는 텍스트는 지금 토글 상태에 맞춰 정리한다. */
+  function addSuggestion(raw: string) {
+    const text = showSynonyms ? formatWithReferences(raw) : stripReferences(raw);
+    setKo((prev) => {
+      const firstEmpty = prev.findIndex((m) => !m.trim());
+      if (firstEmpty !== -1) return prev.map((m, i) => (i === firstEmpty ? text : m));
+      return [...prev, text];
+    });
+    setSuggestions((prev) => prev.filter((s) => s !== raw));
+  }
+
   function submit() {
     const enTrim = en.trim();
     const koList = ko.map((m) => m.trim()).filter(Boolean);
@@ -57,6 +112,8 @@ export default function AddWordForm({
     onAdd(makeWord(enTrim, koList, deck));
     setEn('');
     setKo(['']);
+    setSuggestions([]);
+    setSearchError('');
     onNotice(`"${enTrim}" 추가됨 (뜻 ${koList.length}개)`);
   }
 
@@ -65,7 +122,7 @@ export default function AddWordForm({
       <div className="row wrap">
         <label className="field">
           <span>영단어</span>
-          <input value={en} onChange={(e) => setEn(e.target.value)} placeholder="예: exploit" />
+          <input value={en} onChange={(e) => updateEn(e.target.value)} placeholder="예: exploit" />
         </label>
         {!hideDeckPicker && (
           <label className="field">
@@ -79,7 +136,43 @@ export default function AddWordForm({
             </select>
           </label>
         )}
+        <button
+          type="button"
+          className="btn ghost sm"
+          disabled={!en.trim() || searching}
+          onClick={() => void searchMeaning()}
+        >
+          {searching ? '검색 중…' : '뜻 검색'}
+        </button>
       </div>
+
+      {searchError && <p className="notice-bar muted">{searchError}</p>}
+
+      {suggestions.length > 0 && (
+        <div className="define-suggestions">
+          <div className="row define-suggestions-head">
+            <span className="muted small-label">검색 결과 — 누르면 뜻 칸에 채워집니다</span>
+            <label className="check sm">
+              <input
+                type="checkbox"
+                checked={showSynonyms}
+                onChange={(e) => toggleShowSynonyms(e.target.checked)}
+              />
+              <span>관련어·유의어·반의어 함께 보기</span>
+            </label>
+          </div>
+          {suggestions.map((raw, i) => (
+            <button
+              type="button"
+              key={i}
+              className="btn ghost sm define-suggestion"
+              onClick={() => addSuggestion(raw)}
+            >
+              {showSynonyms ? formatWithReferences(raw) : stripReferences(raw)}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="manual-ko-list">
         {ko.map((m, i) => (

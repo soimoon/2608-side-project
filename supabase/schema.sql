@@ -172,6 +172,26 @@ create policy "pronunciations_select_all" on pronunciations
 -- insert/update 정책을 두지 않는다: service role(Edge Function)만 쓸 수 있어야 하고,
 -- service role은 RLS를 우회하므로 별도 정책이 필요 없다.
 
+-- ---------- definitions (영단어 → 한글 뜻, 전 사용자 공유 캐시) ----------
+-- pronunciations와 똑같은 설계다. 다만 자동으로 안 채워진다 — 단어를 입력한다고
+-- 바로 조회하지 않고, 사용자가 "뜻 검색" 버튼을 눌렀을 때만 define Edge Function이
+-- 호출된다(출시 전 무료로 테스트하는 동안 외부 API 호출을 최소화하고 싶다는 요청).
+-- 한 단어는 평생 최대 1회만 실제로 SerpApi(네이버사전 경유)를 부른다.
+create table if not exists definitions (
+  en text primary key,
+  -- 순서가 있는 뜻 목록(사전의 1번, 2번... 의미). 못 찾았으면 빈 배열.
+  meanings text[] not null default '{}',
+  -- 'naver' | 'none'('찾아봤지만 못 찾음' — 재조회 방지, pronunciations의 source와 같은 관례).
+  source text not null,
+  fetched_at timestamptz not null default now()
+);
+
+alter table definitions enable row level security;
+
+create policy "definitions_select_all" on definitions
+  for select using (true);
+-- insert/update 정책 없음 — pronunciations와 같은 이유(service role 전용).
+
 -- ---------- daily_claims ----------
 -- 출석·미션 보상을 "받았음" 표시만 한다. kind를 늘리면 미션이 늘어도 테이블 구조는
 -- 그대로다. date는 KST(한국시간) 기준 — 클라이언트가 UTC+9로 고정 계산해서 보낸다.
