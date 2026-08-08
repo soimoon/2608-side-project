@@ -8,6 +8,7 @@ import {
   setShowSynonymsEnabled,
   stripReferences,
 } from '../lib/defineApi';
+import KoEditor from './KoEditor';
 
 interface Props {
   /** 선택 가능한 단어장 목록. hideDeckPicker가 true면 화면에 안 보이지만 그래도 필요 없다. */
@@ -52,18 +53,6 @@ export default function AddWordForm({
   function toggleShowSynonyms(v: boolean) {
     setShowSynonyms(v);
     setShowSynonymsEnabled(v);
-  }
-
-  function updateKo(i: number, value: string) {
-    setKo((prev) => prev.map((m, idx) => (idx === i ? value : m)));
-  }
-
-  function addKo() {
-    setKo((prev) => [...prev, '']);
-  }
-
-  function removeKo(i: number) {
-    setKo((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)));
   }
 
   /** en이 바뀌면 이전 단어의 검색 결과가 남아 헷갈리지 않게 지운다. */
@@ -174,27 +163,7 @@ export default function AddWordForm({
         </div>
       )}
 
-      <div className="manual-ko-list">
-        {ko.map((m, i) => (
-          <div className="row manual-ko-row" key={i}>
-            <span className="ko-index">{i + 1}</span>
-            <input
-              className="cell"
-              value={m}
-              onChange={(e) => updateKo(i, e.target.value)}
-              placeholder={i === 0 ? '뜻 (예: 이용하다)' : '또 다른 뜻'}
-            />
-            {ko.length > 1 && (
-              <button className="btn ghost sm" onClick={() => removeKo(i)}>
-                삭제
-              </button>
-            )}
-          </div>
-        ))}
-        <button className="btn ghost sm" onClick={addKo}>
-          + 뜻 추가
-        </button>
-      </div>
+      <KoEditor value={ko} onChange={setKo} />
 
       <button
         className="btn primary"

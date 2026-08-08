@@ -3,6 +3,7 @@ import type { Pronunciation, Word } from '../types';
 import { lookupCache } from '../lib/pronounce';
 import PronounceButton from './PronounceButton';
 import AddWordForm from './AddWordForm';
+import KoEditor from './KoEditor';
 import Icon from './Icon';
 import { DEFAULT_DECK } from '../lib/storage';
 import { byOrder, reorderWords } from '../lib/select';
@@ -68,6 +69,11 @@ export default function StudyList({
     () => new Set(words.filter((w) => w.deck === addDeck).map((w) => w.en.toLowerCase())),
     [words, addDeck],
   );
+
+  /** 편집 모드에서 한 단어의 뜻을 바꾼다. */
+  function updateKo(id: string, next: string[]) {
+    setWords((prev) => prev.map((w) => (w.id === id ? { ...w, ko: next, updatedAt: Date.now() } : w)));
+  }
 
   /** 화면에 보이는 순서에서 from번째를 to번째로 옮긴다. 보통 한 단어의 order만 바뀐다. */
   function move(from: number, to: number) {
@@ -158,7 +164,7 @@ export default function StudyList({
         </button>
         <h2>단어장</h2>
         <div className="topbar-right">
-          <button className="btn ghost sm" onClick={() => setEditMode((v) => !v)}>
+          <button className="btn primary" onClick={() => setEditMode((v) => !v)}>
             {editMode ? '완료' : '편집'}
           </button>
         </div>
@@ -234,7 +240,9 @@ export default function StudyList({
                 <PronounceButton pron={lookupCache(w.en, pronunciations)} size="sm" showPhonetic={false} />
               </div>
               <div className="study-row-ko">
-                {w.ko.length > 1 ? (
+                {editMode ? (
+                  <KoEditor value={w.ko} onChange={(next) => updateKo(w.id, next)} size="sm" />
+                ) : w.ko.length > 1 ? (
                   <ol className="study-ko-list">
                     {w.ko.map((m, i) => (
                       <li key={i}>{m}</li>

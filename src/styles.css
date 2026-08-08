@@ -273,6 +273,13 @@ textarea:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
+/* 브라우저 기본값에 맡기면 테마에 따라 입력한 실제 글자랑 구분이 잘 안 될 때가
+   있다("예시 텍스트가 이미 입력된 줄 알았다"는 피드백) — 명시적으로 옅게 고정. */
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.75;
+}
 input[type='range'] {
   padding: 0;
   border: 0;
@@ -368,6 +375,19 @@ input[type='radio'] {
 }
 .manual-ko-row .cell {
   flex: 1;
+}
+.manual-ko-list.sm {
+  gap: 4px;
+  min-width: 160px;
+}
+.manual-ko-list.sm .manual-ko-row .ko-index {
+  width: 18px;
+  height: 18px;
+  font-size: 0.7rem;
+}
+.manual-ko-list.sm .manual-ko-row .cell {
+  padding: 5px 8px;
+  font-size: 0.85rem;
 }
 .manual-ko-row .ko-index {
   flex: none;
@@ -958,6 +978,13 @@ input[type='radio'] {
   padding: 4px 8px;
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
+}
+/* 뜻 칸은 이제 여러 줄짜리 미니 에디터라 다른 한 줄짜리 칸과 달리 세로 가운데
+   정렬이 어색하다 — 위쪽 정렬에 살짝 여유를 둔다. */
+.word-table td.ko-cell {
+  vertical-align: top;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 .word-table .en {
   font-family: var(--mono);

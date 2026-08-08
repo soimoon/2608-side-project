@@ -6,12 +6,18 @@ import { lookupCache, missingFromCache } from '../lib/pronounce';
 import ImportReview, { type ReviewRow } from './ImportReview';
 import PronounceButton from './PronounceButton';
 import AddWordForm from './AddWordForm';
+import KoEditor from './KoEditor';
 import ConfirmModal from './ConfirmModal';
 
-const SAMPLE = `synthesize\t통합하다, 종합하다
-ubiquitous\t어디에나 있는
-2. mitigate - 완화하다
-분명한  apparent`;
+// 첫 줄에 "예:"를 박아 둔다 — placeholder는 기본적으로 옅은 회색으로 뜨지만,
+// 실제 단어들처럼 자연스럽게 보여서 "이미 뭔가 입력돼 있다"고 오해하더라는
+// 피드백이 있었다. 색만으로는 부족해서 텍스트로도 명확히 밝힌다. 세 줄은 각각
+// 다른 형식(구분자, "-" 구분, 한글이 앞에 옴)을 보여줘 "이렇게 안 써도 알아서
+// 인식된다"는 걸 예시만으로 전달한다.
+const SAMPLE = `자동으로 인식되는 붙여넣기 예:
+synthesize 통합하다, 종합하다
+mitigate - 완화하다
+분명한 apparent`;
 
 interface Props {
   deckName: string;
@@ -45,6 +51,11 @@ export default function DeckDetailScreen({
   onFetchPronunciations,
   onBack,
 }: Props) {
+  // 붙여넣기와 직접 추가를 처음부터 한 화면에 다 보여주면 두 방법이 뒤섞여
+  // 처음 보는 사람에게 뭘 써야 할지 안 와닿는다는 피드백이 있었다. 그래서
+  // 단어장 목록 화면(DeckListScreen)의 블록 선택과 같은 패턴으로, 방법을 먼저
+  // 고르게 하고 그다음에만 해당 UI를 보여준다. null이면 선택 화면.
+  const [addMethod, setAddMethod] = useState<'bulk' | 'manual' | null>(null);
   const [bulk, setBulk] = useState('');
   const [reviewRows, setReviewRows] = useState<ReviewRow[] | null>(null);
   const [query, setQuery] = useState('');
@@ -287,77 +298,105 @@ export default function DeckDetailScreen({
         />
       )}
 
-      <section className="card">
-        <h3>단어 추가</h3>
-        <p className="muted">
-          엑셀에서 두 열(영단어 / 뜻)을 복사해 그대로 붙여넣으세요. 구분자가 없거나 한글이 앞에
-          와도, 폰 카메라로 찍은 종이 단어장을 OCR로 뽑은 텍스트라도 자동으로 분류합니다.{' '}
-          <code>.csv</code> · <code>.txt</code> 파일도 됩니다.
-        </p>
-
-        <div className="row">
-          {!reviewRows && (
-            <button className="btn ghost" onClick={() => fileRef.current?.click()}>
-              파일 불러오기
+      {addMethod === null ? (
+        <section className="card">
+          <h3>단어 추가</h3>
+          <div className="room-list">
+            <button className="room-list-item" onClick={() => setAddMethod('manual')}>
+              <div className="room-list-title">단어 직접 추가</div>
+              <div className="room-list-meta muted">한 단어씩, 뜻 여러 개도 붙여서 등록</div>
             </button>
+            <button className="room-list-item" onClick={() => setAddMethod('bulk')}>
+              <div className="room-list-title">단어 한번에 붙여넣기 · 파일 불러오기</div>
+              <div className="room-list-meta muted">
+                엑셀 두 열이나 OCR로 뽑은 텍스트를 한 번에 여러 개 등록
+              </div>
+            </button>
+          </div>
+        </section>
+      ) : (
+        <section className="card">
+          <div className="row between">
+            <h3>{addMethod === 'bulk' ? '단어 한번에 붙여넣기 · 파일 불러오기' : '단어 직접 추가'}</h3>
+            <button className="btn ghost sm" onClick={() => setAddMethod(null)}>
+              ← 다른 방법으로
+            </button>
+          </div>
+
+          {addMethod === 'bulk' ? (
+            <>
+              <p className="muted">
+                엑셀에서 두 열(영단어 / 뜻)을 복사해 그대로 붙여넣는다. 구분자가 없거나 한글이
+                앞에 와도, 폰 카메라로 찍은 종이 단어장을 OCR로 뽑은 텍스트라도 자동으로
+                분류한다. <code>.csv</code> · <code>.txt</code> 파일도 된다.
+              </p>
+
+              <div className="row">
+                {!reviewRows && (
+                  <button className="btn ghost" onClick={() => fileRef.current?.click()}>
+                    파일 불러오기
+                  </button>
+                )}
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".csv,.txt,.tsv,text/csv,text/plain"
+                  hidden
+                  onChange={onFile}
+                />
+              </div>
+
+              {reviewRows ? (
+                <ImportReview
+                  rows={reviewRows}
+                  existingLower={existing}
+                  onChange={setReviewRows}
+                  onCommit={commitReview}
+                  onCancel={() => setReviewRows(null)}
+                />
+              ) : (
+                <>
+                  <textarea
+                    className="bulk"
+                    rows={8}
+                    value={bulk}
+                    onChange={(e) => {
+                      setBulk(e.target.value);
+                      setNotice('');
+                    }}
+                    placeholder={SAMPLE}
+                    spellCheck={false}
+                  />
+                  <button className="btn primary" disabled={!bulk.trim()} onClick={openReview}>
+                    {bulk.trim()
+                      ? `검토하기 (${quickCount.rows.length}줄 인식${
+                          quickCount.skipped.length ? ` · ${quickCount.skipped.length}줄 확인 필요` : ''
+                        })`
+                      : '검토하기'}
+                  </button>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="muted">
+                한 단어에 뜻을 여러 개 붙이고 싶을 때 쓴다. 퀴즈에서는 순서대로 1, 2, 3…으로
+                보여준다.
+              </p>
+
+              <AddWordForm
+                decks={decks}
+                deck={deckName}
+                onDeckChange={() => {}}
+                hideDeckPicker
+                existing={existing}
+                onAdd={(word) => setWords((prev) => [...prev, word])}
+                onNotice={setNotice}
+              />
+            </>
           )}
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv,.txt,.tsv,text/csv,text/plain"
-            hidden
-            onChange={onFile}
-          />
-        </div>
-
-        {reviewRows ? (
-          <ImportReview
-            rows={reviewRows}
-            existingLower={existing}
-            onChange={setReviewRows}
-            onCommit={commitReview}
-            onCancel={() => setReviewRows(null)}
-          />
-        ) : (
-          <>
-            <textarea
-              className="bulk"
-              rows={8}
-              value={bulk}
-              onChange={(e) => {
-                setBulk(e.target.value);
-                setNotice('');
-              }}
-              placeholder={SAMPLE}
-              spellCheck={false}
-            />
-            <button className="btn primary" disabled={!bulk.trim()} onClick={openReview}>
-              {bulk.trim()
-                ? `검토하기 (${quickCount.rows.length}줄 인식${
-                    quickCount.skipped.length ? ` · ${quickCount.skipped.length}줄 확인 필요` : ''
-                  })`
-                : '검토하기'}
-            </button>
-          </>
-        )}
-      </section>
-
-      <section className="card">
-        <h3>단어 직접 추가</h3>
-        <p className="muted">
-          한 단어에 뜻을 여러 개 붙이고 싶을 때 쓴다. 퀴즈에서는 순서대로 1, 2, 3…으로 보여준다.
-        </p>
-
-        <AddWordForm
-          decks={decks}
-          deck={deckName}
-          onDeckChange={() => {}}
-          hideDeckPicker
-          existing={existing}
-          onAdd={(word) => setWords((prev) => [...prev, word])}
-          onNotice={setNotice}
-        />
-      </section>
+        </section>
+      )}
 
       <section className="card">
         <div className="row between">
@@ -425,20 +464,8 @@ export default function DeckDetailScreen({
                   <td className="nowrap">
                     <PronounceButton pron={lookupCache(w.en, pronunciations)} size="sm" showPhonetic={false} />
                   </td>
-                  <td>
-                    <input
-                      value={w.ko.join(' / ')}
-                      onChange={(e) =>
-                        update(w.id, {
-                          ko: e.target.value
-                            .split('/')
-                            .map((s) => s.trim())
-                            .filter(Boolean),
-                        })
-                      }
-                      className="cell"
-                      title="뜻이 여러 개면 / 로 구분 (예: 이용하다 / 위업, 공적)"
-                    />
+                  <td className="ko-cell">
+                    <KoEditor value={w.ko} onChange={(next) => update(w.id, { ko: next })} size="sm" />
                   </td>
                   <td className="nowrap">
                     <select value={w.deck} onChange={(e) => update(w.id, { deck: e.target.value })}>
