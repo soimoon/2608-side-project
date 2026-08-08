@@ -76,3 +76,44 @@ export function playSfx(name: SfxName): Promise<void> {
     }
   });
 }
+
+/** 퀴즈 시작 시 한 번 불러 둔다 — 브라우저가 파일을 미리 내려받아 두면, 실제로
+ *  필요한 순간(정답/오답 판정)에 새 Audio 인스턴스를 만들자마자 곧바로 매끄럽게
+ *  재생된다. 실사용 피드백으로 정답음이 "띠, 디딩~"처럼 버벅이는 현상이 있었는데,
+ *  재생 시작 시점에 파일을 아직 못 받아온 게 원인일 가능성이 높아서 추가했다. */
+export function preloadSfx(): void {
+  for (const { file } of Object.values(SOUNDS)) {
+    try {
+      const audio = new Audio(`${import.meta.env.BASE_URL}sfx/${file}`);
+      audio.preload = 'auto';
+      audio.load();
+    } catch {
+      /* no-op — 못 미리 받아도 실제 재생 시점에 다시 시도되니 그만이다 */
+    }
+  }
+}
+
+/**
+ * 모바일 브라우저의 "사용자 조작 없이는 소리 재생 금지" 정책을 미리 풀어 둔다.
+ * 사용자 제스처(버튼 클릭) 안에서 실제로 재생을 한 번 성공시켜 두면, 이후 타이머
+ * 만료처럼 제스처 없이 걸리는 재생(예: 시간 초과)도 대부분의 브라우저에서 계속
+ * 허용된다 — 시간 초과 시 효과음·발음이 자주 안 들린다는 피드백에 대한 대응이다.
+ * 거의 무음으로 아주 짧게 재생하고 바로 멈춘다.
+ */
+export function primeAudio(): void {
+  try {
+    const audio = new Audio(`${import.meta.env.BASE_URL}sfx/tick.ogg`);
+    audio.volume = 0.01;
+    void audio
+      .play()
+      .then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+      })
+      .catch(() => {
+        /* 실패해도 그만 — 다음 사용자 조작 때 다시 시도될 뿐 치명적이지 않다 */
+      });
+  } catch {
+    /* no-op */
+  }
+}

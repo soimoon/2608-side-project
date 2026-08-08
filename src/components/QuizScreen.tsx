@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Attempt, Pronunciation, QuizSettings, Verdict, Word } from '../types';
 import { judge, normalize } from '../lib/judge';
 import { maskWord } from '../lib/mask';
-import { lookupCache, playAudio } from '../lib/pronounce';
-import { playSfx } from '../lib/sfx';
+import { lookupCache, playAudioAsync } from '../lib/pronounce';
+import { playSfx, preloadSfx } from '../lib/sfx';
 import PronounceButton from './PronounceButton';
 import MaskSlots from './MaskSlots';
 import TimerBar, { timerStageOf } from './TimerBar';
@@ -65,6 +65,13 @@ export default function QuizScreen({
   /** 방금 재생한 정답/오답 효과음이 끝나는 시점. 발음 자동재생이 이 효과음과 겹치지
    *  않고 끝난 뒤에 이어서 나오게 하는 데 쓴다(아래 발음 재생 효과 참고). */
   const sfxDone = useRef<Promise<void>>(Promise.resolve());
+  /** 이번 문제의 효과음+발음이 전부 끝나는 시점. advance()가 이걸 기다렸다가 다음
+   *  문제로 넘어간다 — 발음을 듣다 마는 것보다는 다음 문제로 넘어가는 게 조금
+   *  늦는 쪽이 낫다는 판단(사용자 피드백). submit() 시점엔 일단 sfxDone과 같지만,
+   *  발음이 있으면 발음 재생 효과가 이어붙여 덮어쓴다. */
+  const playbackDone = useRef<Promise<void>>(Promise.resolve());
+  /** advance()가 재생 대기 중에 중복 호출되는 걸 막는다(연타 등). */
+  const advancing = useRef(false);
 
   const item = queue[idx];
   const answer = item?.word.en ?? '';
@@ -75,7 +82,14 @@ export default function QuizScreen({
     [answer, settings.hintRatio, idx],
   );
 
-  const advance = useCallback(() => {
+  /** 다음 문제로 넘어간다. 이번 문제의 효과음+발음이 아직 재생 중이면 그게 끝날
+   *  때까지 기다린 뒤 넘어간다 — 발음을 듣다 마는 건 안 된다는 피드백. */
+  const advance = useCallback(async () => {
+    if (advancing.current) return;
+    advancing.current = true;
+    await playbackDone.current;
+    advancing.current = false;
+
     const q = pending.current?.queue ?? queue;
     const a = pending.current?.attempts ?? attempts;
     pending.current = null;
@@ -101,6 +115,9 @@ export default function QuizScreen({
       // 사용자에게 같은 신호면 충분하다는 판단. 끝나는 시점을 기억해 뒀다가 발음
       // 자동재생이 이 소리와 안 겹치고 이어서 나오게 한다.
       sfxDone.current = playSfx(v === 'correct' ? 'correct' : 'wrong');
+      // 이 문제에 발음이 없거나 자동재생이 꺼져 있으면 아래 발음 재생 효과가 안
+      // 돌아서 playbackDone이 갱신 안 될 수 있다 — 일단 효과음까지만이라도 기본값으로 둔다.
+      playbackDone.current = sfxDone.current;
 
       const attempt: Attempt = {
         wordId: item.word.id,
@@ -208,15 +225,20 @@ export default function QuizScreen({
     inputRef.current?.focus();
   }, [idx, phase]);
 
-  /** 이번 문제에서 실제로 소리가 날 것인지. 정답 후 대기 시간을 여기에 맞춘다. */
-  const willPlayAudio = settings.autoPlayAudio && Boolean(pron?.audioUrl);
+  // 정답/오답/틱 파일을 미리 내려받아 둔다 — 실제로 필요한 순간 새로 요청하면서
+  // 생기는 재생 시작 지연(버벅임)을 줄이려는 용도. 세션당 한 번이면 충분하다.
+  useEffect(() => {
+    preloadSfx();
+  }, []);
 
   /**
    * 채점되는 순간 발음을 들려준다 — 맞혔든 틀렸든. 방금 떠올린 철자와 소리를 같이
    * 넣어야 기억에 남는다.
    *
    * 정답/오답 효과음과 동시에 나면 서로 묻혀서 오히려 방해된다는 피드백이 있어서,
-   * sfxDone(효과음이 끝나는 시점)을 기다렸다가 이어서 재생한다.
+   * sfxDone(효과음이 끝나는 시점)을 기다렸다가 이어서 재생한다. 이 재생이 끝나는
+   * 시점을 playbackDone에 이어붙여 둔다 — advance()가 이걸 기다렸다가 다음
+   * 문제로 넘어간다(발음을 듣다 마는 걸 막기 위해서).
    *
    * 문제당 한 번만 재생한다. 퀴즈 도중 발음 미리 받기가 끝나면 pronunciations가
    * 바뀌는데, 그때 이미 피드백 화면이면 같은 소리가 다시 나기 때문이다.
@@ -229,17 +251,17 @@ export default function QuizScreen({
     if (audioPlayedFor.current === idx) return;
     audioPlayedFor.current = idx;
     const url = pron.audioUrl;
-    void sfxDone.current.then(() => playAudio(url));
+    playbackDone.current = sfxDone.current.then(() => playAudioAsync(url));
   }, [idx, phase, verdict, pron, settings.autoPlayAudio]);
 
-  // 정답이면 잠깐 보여주고 자동으로 넘어간다.
+  // 정답이면 잠깐 보여주고 자동으로 넘어간다. 얼마나 기다릴지는 advance()가
+  // playbackDone(효과음+발음이 실제로 끝나는 시점)을 기다리며 알아서 정하므로,
+  // 여기서는 "정답!"이 화면에 최소한으로 보이는 시간만 보장한다.
   useEffect(() => {
     if (phase !== 'feedback' || verdict !== 'correct') return;
-    // 이제 발음이 효과음 뒤에 이어서 나오므로(위 효과 참고), 효과음 재생 시간만큼
-    // 대기 시간을 더 늘렸다 — 안 그러면 발음이 채 끝나기 전에 다음 문제로 넘어간다.
-    const t = window.setTimeout(advance, willPlayAudio ? 2000 : 550);
+    const t = window.setTimeout(() => void advance(), 400);
     return () => window.clearTimeout(t);
-  }, [phase, verdict, advance, willPlayAudio]);
+  }, [phase, verdict, advance]);
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Escape') {
@@ -261,9 +283,9 @@ export default function QuizScreen({
     } else if (phase === 'retype') {
       // 다 쳤어도 자동으로 넘어가지 않는다 — 넘어가자마자 눌린 Enter가 다음 문제의
       // 빈 입력을 오답으로 제출해 버리는 사고가 있었다. 맞게 쳤을 때만 Enter로 넘어간다.
-      if (normalize(input) === normalize(answer)) advance();
+      if (normalize(input) === normalize(answer)) void advance();
     } else if (phase === 'feedback' && verdict !== 'correct') {
-      advance();
+      void advance();
     }
   }
 

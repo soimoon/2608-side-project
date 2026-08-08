@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { QuizSettings, Strategy, Word } from '../types';
 import { byOrder, pickWords } from '../lib/select';
 import { maskPreview } from '../lib/mask';
+import { primeAudio } from '../lib/sfx';
 
 /**
  * 제한 시간·문제 수·범위 입력에 공통으로 쓰는 숫자 입력칸.
@@ -158,6 +159,10 @@ export default function SetupScreen({
         ? pickWords(words, s.decks, 0, 'range', { from: rangeFrom, to: rangeTo })
         : pickWords(words, s.decks, s.count, s.strategy);
     if (picked.length === 0) return;
+    // 지금이 실제 사용자 클릭 안이라 오디오 자동재생 잠금을 풀 수 있는 몇 안 되는
+    // 기회다 — 여기서 풀어 두면 퀴즈 중 시간 초과처럼 사용자 조작 없이 걸리는
+    // 재생(효과음·발음)도 브라우저가 계속 허용해 줄 가능성이 높아진다.
+    primeAudio();
     onSettingsChange(s);
     onStart(picked, s);
   }

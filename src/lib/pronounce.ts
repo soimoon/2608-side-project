@@ -141,3 +141,33 @@ export function playAudio(url: string): void {
     /* 재생 실패가 학습을 막아서는 안 된다 */
   }
 }
+
+/**
+ * 재생이 끝날 때까지 기다릴 수 있는 버전 — sfx.ts의 playSfx와 같은 패턴. 다음
+ * 문제로 자동으로 넘어가기 전에 발음이 끝까지 나오는 걸 보장하는 데 쓴다
+ * (QuizScreen 참고) — 발음을 듣다 마는 것보다는 다음 문제로 넘어가는 게 조금
+ * 늦는 쪽이 낫다는 판단.
+ */
+export function playAudioAsync(url: string): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    try {
+      current?.pause();
+      const audio = new Audio(url);
+      current = audio;
+      audio.addEventListener('ended', finish, { once: true });
+      audio.addEventListener('error', finish, { once: true });
+      void audio.play().catch(finish);
+      // 'ended'가 어떤 이유로든 안 불릴 경우의 안전망 — 발음은 sfx보다 길 수 있어
+      // 여유를 더 둔다.
+      window.setTimeout(finish, 4000);
+    } catch {
+      finish();
+    }
+  });
+}
