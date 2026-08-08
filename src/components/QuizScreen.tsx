@@ -3,7 +3,7 @@ import type { Attempt, Pronunciation, QuizSettings, Verdict, Word } from '../typ
 import { judge, normalize } from '../lib/judge';
 import { maskWord } from '../lib/mask';
 import { lookupCache, playAudioAsync } from '../lib/pronounce';
-import { playSfx, preloadSfx } from '../lib/sfx';
+import { playSfx, preloadSfx, primeAudio } from '../lib/sfx';
 import PronounceButton from './PronounceButton';
 import MaskSlots from './MaskSlots';
 import TimerBar, { timerStageOf } from './TimerBar';
@@ -207,6 +207,7 @@ export default function QuizScreen({
   /** 일시중지를 켜고 끈다. 재개 시 멈춰 있던 구간만큼 questionStart를 밀어 통계용
    *  소요시간(elapsedMs)에서 빠지게 한다. */
   const togglePaused = useCallback(() => {
+    primeAudio();
     setPaused((p) => {
       if (p) {
         // 재개하는 순간.
@@ -274,6 +275,11 @@ export default function QuizScreen({
     if (paused) return;
     if (e.key !== 'Enter') return;
     e.preventDefault();
+
+    // 진짜 사용자 조작(Enter)이 있을 때마다 오디오 잠금 해제를 다시 갱신한다 —
+    // "문제 시작" 때 한 번만 풀어두면 시간이 지나며 다시 잠기는지, 시간초과가
+    // 이어지면 효과음이 다시 안 들리기 시작한다는 피드백이 있었다.
+    primeAudio();
 
     if (phase === 'answering') {
       // 아무것도 안 쳤는데 앞 문제에서 넘어온 Enter가 여기로 새어 들어오는 경우가
